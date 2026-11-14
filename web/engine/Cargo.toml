@@ -1,0 +1,9 @@
+[workspace]
+resolver = "3"
+members = ["mann_kendall", "trend_wasm"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
