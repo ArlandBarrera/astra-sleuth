@@ -18,10 +18,18 @@ pub enum MkError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Alternative { TwoSided, Increasing, Decreasing }
+pub enum Alternative {
+    TwoSided,
+    Increasing,
+    Decreasing,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Direction { Up, Down, Flat }
+pub enum Direction {
+    Up,
+    Down,
+    Flat,
+}
 
 /// Result of `mann_kendall`. Fields without a suffix assume independent data.
 /// Fields ending in `_hr` use the Hamed-Rao variance correction (autocorrelation).
@@ -36,10 +44,10 @@ pub struct MkResult {
     pub significant: bool,
     pub direction: Direction,
     pub tau: f64,
-    pub sen_slope: f64,        // units of v per unit of t
-    pub sen_ci: (f64, f64),    // (1 - alpha) confidence interval of the slope
+    pub sen_slope: f64,     // units of v per unit of t
+    pub sen_ci: (f64, f64), // (1 - alpha) confidence interval of the slope
     // --- Hamed-Rao ---
-    pub acf_factor: f64,       // Var*(S) / Var(S); > 1 means positive autocorrelation inflated Z
+    pub acf_factor: f64, // Var*(S) / Var(S); > 1 means positive autocorrelation inflated Z
     pub var_s_hr: f64,
     pub z_hr: f64,
     pub p_hr: f64,
@@ -49,23 +57,23 @@ pub struct MkResult {
 
 #[derive(Debug)]
 pub struct SeasonalResult {
-    pub n: usize,              // samples in seasons that had >= 2 values
-    pub s: i64,                // sum of the per-season S
-    pub var_s: f64,            // sum of the per-season variances
+    pub n: usize,   // samples in seasons that had >= 2 values
+    pub s: i64,     // sum of the per-season S
+    pub var_s: f64, // sum of the per-season variances
     pub z: f64,
     pub p: f64,
     pub significant: bool,
     pub direction: Direction,
-    pub sen_slope: f64,        // median of all within-season slopes, units of v per unit of t
+    pub sen_slope: f64, // median of all within-season slopes, units of v per unit of t
     pub sen_ci: (f64, f64),
-    pub season_s: Vec<i64>,    // S of each season: do they agree in sign?
+    pub season_s: Vec<i64>, // S of each season: do they agree in sign?
 }
 
 #[derive(Debug)]
 pub struct PettittResult {
-    pub change_index: usize,   // first sample of the new regime (t[change_index] is the first "after")
-    pub k: f64,                // max |U_t|
-    pub p: f64,                // approximate two-sided p-value
+    pub change_index: usize, // first sample of the new regime (t[change_index] is the first "after")
+    pub k: f64,              // max |U_t|
+    pub p: f64,              // approximate two-sided p-value
     pub significant: bool,
     pub mean_before: f64,
     pub mean_after: f64,
@@ -107,38 +115,71 @@ fn var_s(v: &[f64]) -> f64 {
 }
 
 fn z_score(s: i64, var: f64) -> f64 {
-    if s == 0 || var <= 0.0 { return 0.0; }
+    if s == 0 || var <= 0.0 {
+        return 0.0;
+    }
     let sd = var.sqrt();
-    if s > 0 { (s as f64 - 1.0) / sd } else { (s as f64 + 1.0) / sd }
+    if s > 0 {
+        (s as f64 - 1.0) / sd
+    } else {
+        (s as f64 + 1.0) / sd
+    }
 }
 
 /// Standard normal CDF, Abramowitz & Stegun 26.2.17 (error < 7.5e-8).
 fn norm_cdf(x: f64) -> f64 {
     let t = 1.0 / (1.0 + 0.2316419 * x.abs());
-    let poly = t * (0.319381530
-        + t * (-0.356563782
-        + t * (1.781477937
-        + t * (-1.821255978
-        + t * 1.330274429))));
+    let poly = t
+        * (0.319381530
+            + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
     let pdf = (-0.5 * x * x).exp() / (2.0 * std::f64::consts::PI).sqrt();
     let upper = pdf * poly; // P(Z > |x|)
-    if x >= 0.0 { 1.0 - upper } else { upper }
+    if x >= 0.0 {
+        1.0 - upper
+    } else {
+        upper
+    }
 }
 
 /// Inverse normal CDF (Acklam's rational approximation, relative error ~1e-9).
 /// Gives the 1.96 / 1.645 critical values for any alpha.
 fn norm_ppf(p: f64) -> f64 {
-    const A: [f64; 6] = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
-                         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
-    const B: [f64; 5] = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
-                         6.680131188771972e+01, -1.328068155288572e+01];
-    const C: [f64; 6] = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
-                         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00];
-    const D: [f64; 4] = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
-                         3.754408661907416e+00];
+    const A: [f64; 6] = [
+        -3.969683028665376e+01,
+        2.209460984245205e+02,
+        -2.759285104469687e+02,
+        1.383577518672690e+02,
+        -3.066479806614716e+01,
+        2.506628277459239e+00,
+    ];
+    const B: [f64; 5] = [
+        -5.447609879822406e+01,
+        1.615858368580409e+02,
+        -1.556989798598866e+02,
+        6.680131188771972e+01,
+        -1.328068155288572e+01,
+    ];
+    const C: [f64; 6] = [
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e+00,
+        -2.549732539343734e+00,
+        4.374664141464968e+00,
+        2.938163982698783e+00,
+    ];
+    const D: [f64; 4] = [
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e+00,
+        3.754408661907416e+00,
+    ];
     let p_low = 0.02425;
-    if p <= 0.0 { return f64::NEG_INFINITY; }
-    if p >= 1.0 { return f64::INFINITY; }
+    if p <= 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if p >= 1.0 {
+        return f64::INFINITY;
+    }
     if p < p_low {
         let q = (-2.0 * p.ln()).sqrt();
         (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
@@ -157,14 +198,18 @@ fn norm_ppf(p: f64) -> f64 {
 
 fn p_value(z: f64, alt: Alternative) -> f64 {
     match alt {
-        Alternative::TwoSided   => 2.0 * norm_cdf(-z.abs()),
+        Alternative::TwoSided => 2.0 * norm_cdf(-z.abs()),
         Alternative::Increasing => norm_cdf(-z),
         Alternative::Decreasing => norm_cdf(z),
     }
 }
 
 fn direction_of(s: i64) -> Direction {
-    match s.signum() { 1 => Direction::Up, -1 => Direction::Down, _ => Direction::Flat }
+    match s.signum() {
+        1 => Direction::Up,
+        -1 => Direction::Down,
+        _ => Direction::Flat,
+    }
 }
 
 /// All pairwise slopes (v_j - v_i)/(t_j - t_i), sorted ascending.
@@ -182,7 +227,11 @@ fn sorted_slopes(t: &[f64], v: &[f64]) -> Vec<f64> {
 
 fn median_sorted(s: &[f64]) -> f64 {
     let n = s.len();
-    if n % 2 == 1 { s[n / 2] } else { 0.5 * (s[n / 2 - 1] + s[n / 2]) }
+    if n % 2 == 1 {
+        s[n / 2]
+    } else {
+        0.5 * (s[n / 2 - 1] + s[n / 2])
+    }
 }
 
 /// Sen (1968) / Gilbert (1987) confidence interval of the slope.
@@ -206,9 +255,13 @@ fn avg_ranks(v: &[f64]) -> Vec<f64> {
     let mut i = 0;
     while i < n {
         let mut j = i;
-        while j + 1 < n && v[idx[j + 1]] == v[idx[i]] { j += 1; }
+        while j + 1 < n && v[idx[j + 1]] == v[idx[i]] {
+            j += 1;
+        }
         let r = (i + j) as f64 / 2.0 + 1.0;
-        for k in i..=j { ranks[idx[k]] = r; }
+        for k in i..=j {
+            ranks[idx[k]] = r;
+        }
         i = j + 1;
     }
     ranks
@@ -224,7 +277,9 @@ fn hamed_rao_factor(t: &[f64], v: &[f64], slope: f64, alpha: f64) -> f64 {
     let nf = n as f64;
     let mean = r.iter().sum::<f64>() / nf;
     let c0: f64 = r.iter().map(|x| (x - mean) * (x - mean)).sum();
-    if c0 <= 0.0 { return 1.0; }
+    if c0 <= 0.0 {
+        return 1.0;
+    }
     let bound = norm_ppf(1.0 - alpha / 2.0) / nf.sqrt();
     let mut acc = 0.0;
     for k in 1..n.saturating_sub(2) {
@@ -236,20 +291,35 @@ fn hamed_rao_factor(t: &[f64], v: &[f64], slope: f64, alpha: f64) -> f64 {
         }
     }
     let f = 1.0 + 2.0 / (nf * (nf - 1.0) * (nf - 2.0)) * acc;
-    if f > 0.0 { f } else { 1.0 } // strong negative autocorrelation can push it <= 0: fall back
+    if f > 0.0 {
+        f
+    } else {
+        1.0
+    } // strong negative autocorrelation can push it <= 0: fall back
 }
 
 fn check_time(t: &[f64]) -> Result<(), MkError> {
-    if t.windows(2).any(|w| !(w[1] > w[0])) { Err(MkError::NotIncreasingTime) } else { Ok(()) }
+    if t.windows(2).any(|w| !(w[1] > w[0])) {
+        Err(MkError::NotIncreasingTime)
+    } else {
+        Ok(())
+    }
 }
 
 // ---------- public API: Mann-Kendall ----------
 
-pub fn mann_kendall(t: &[f64], v: &[f64], alpha: f64, alt: Alternative)
-    -> Result<MkResult, MkError>
-{
-    if t.len() != v.len() { return Err(MkError::LengthMismatch); }
-    if v.len() < 4 { return Err(MkError::TooFewPoints); }
+pub fn mann_kendall(
+    t: &[f64],
+    v: &[f64],
+    alpha: f64,
+    alt: Alternative,
+) -> Result<MkResult, MkError> {
+    if t.len() != v.len() {
+        return Err(MkError::LengthMismatch);
+    }
+    if v.len() < 4 {
+        return Err(MkError::TooFewPoints);
+    }
     check_time(t)?;
 
     let n = v.len();
@@ -268,7 +338,11 @@ pub fn mann_kendall(t: &[f64], v: &[f64], alpha: f64, alt: Alternative)
     let p_hr = p_value(z_hr, alt);
 
     Ok(MkResult {
-        n, s, var_s: var, z, p,
+        n,
+        s,
+        var_s: var,
+        z,
+        p,
         significant: p < alpha,
         direction: direction_of(s),
         tau: s as f64 / pairs,
@@ -301,28 +375,45 @@ pub fn civil_from_unix(t: f64) -> (i32, u32, u32) {
 
 /// Season ids for monthly grouping: 0..=11.
 pub fn months_of(t_unix: &[f64]) -> Vec<usize> {
-    t_unix.iter().map(|&t| civil_from_unix(t).1 as usize - 1).collect()
+    t_unix
+        .iter()
+        .map(|&t| civil_from_unix(t).1 as usize - 1)
+        .collect()
 }
 
 /// Season ids for hour-of-day grouping: 0..=23.
 pub fn hours_of(t_unix: &[f64]) -> Vec<usize> {
-    t_unix.iter().map(|&t| (t.rem_euclid(86_400.0) / 3600.0) as usize).collect()
+    t_unix
+        .iter()
+        .map(|&t| (t.rem_euclid(86_400.0) / 3600.0) as usize)
+        .collect()
 }
 
 /// true for samples whose calendar year is in [y0, y1] (e.g. 1991..=2020 for a climatology).
 pub fn year_mask(t_unix: &[f64], y0: i32, y1: i32) -> Vec<bool> {
-    t_unix.iter().map(|&t| { let y = civil_from_unix(t).0; y >= y0 && y <= y1 }).collect()
+    t_unix
+        .iter()
+        .map(|&t| {
+            let y = civil_from_unix(t).0;
+            y >= y0 && y <= y1
+        })
+        .collect()
 }
 
 /// Deseasonalize: subtract each season's mean (computed over the `base` samples only,
 /// or over everything when `base` is None). NaN inputs stay NaN.
-pub fn anomalies(v: &[f64], season: &[usize], n_seasons: usize, base: Option<&[bool]>)
-    -> Result<Vec<f64>, MkError>
-{
+pub fn anomalies(
+    v: &[f64],
+    season: &[usize],
+    n_seasons: usize,
+    base: Option<&[bool]>,
+) -> Result<Vec<f64>, MkError> {
     if v.len() != season.len() || base.map_or(false, |b| b.len() != v.len()) {
         return Err(MkError::LengthMismatch);
     }
-    if season.iter().any(|&s| s >= n_seasons) { return Err(MkError::BadSeason); }
+    if season.iter().any(|&s| s >= n_seasons) {
+        return Err(MkError::BadSeason);
+    }
     let mut sum = vec![0.0; n_seasons];
     let mut cnt = vec![0usize; n_seasons];
     for i in 0..v.len() {
@@ -334,20 +425,35 @@ pub fn anomalies(v: &[f64], season: &[usize], n_seasons: usize, base: Option<&[b
     if (0..v.len()).any(|i| v[i].is_finite() && cnt[season[i]] == 0) {
         return Err(MkError::EmptyBaseline);
     }
-    Ok((0..v.len()).map(|i| {
-        if v[i].is_finite() { v[i] - sum[season[i]] / cnt[season[i]] as f64 } else { f64::NAN }
-    }).collect())
+    Ok((0..v.len())
+        .map(|i| {
+            if v[i].is_finite() {
+                v[i] - sum[season[i]] / cnt[season[i]] as f64
+            } else {
+                f64::NAN
+            }
+        })
+        .collect())
 }
 
 /// Seasonal Mann-Kendall (Hirsch, Slack & Smith 1982) with the seasonal Sen slope.
 /// `season[i]` in 0..n_seasons labels each sample (e.g. `months_of(&t_unix)`).
 /// S and Var(S) are computed inside each season and added; seasons are assumed independent.
 /// The slope is the median of all within-season slopes, in units of v per unit of t.
-pub fn seasonal_mann_kendall(t: &[f64], v: &[f64], season: &[usize], n_seasons: usize,
-                             alpha: f64, alt: Alternative) -> Result<SeasonalResult, MkError>
-{
-    if t.len() != v.len() || v.len() != season.len() { return Err(MkError::LengthMismatch); }
-    if season.iter().any(|&s| s >= n_seasons) { return Err(MkError::BadSeason); }
+pub fn seasonal_mann_kendall(
+    t: &[f64],
+    v: &[f64],
+    season: &[usize],
+    n_seasons: usize,
+    alpha: f64,
+    alt: Alternative,
+) -> Result<SeasonalResult, MkError> {
+    if t.len() != v.len() || v.len() != season.len() {
+        return Err(MkError::LengthMismatch);
+    }
+    if season.iter().any(|&s| s >= n_seasons) {
+        return Err(MkError::BadSeason);
+    }
     check_time(t)?;
 
     let mut tg = vec![Vec::new(); n_seasons];
@@ -360,20 +466,28 @@ pub fn seasonal_mann_kendall(t: &[f64], v: &[f64], season: &[usize], n_seasons: 
     let mut season_s = vec![0i64; n_seasons];
     let mut slopes: Vec<f64> = Vec::new();
     for g in 0..n_seasons {
-        if vg[g].len() < 2 { continue; }
+        if vg[g].len() < 2 {
+            continue;
+        }
         season_s[g] = s_statistic(&vg[g]);
         s_tot += season_s[g];
         var_tot += var_s(&vg[g]);
         n_used += vg[g].len();
         slopes.extend(sorted_slopes(&tg[g], &vg[g]));
     }
-    if slopes.is_empty() { return Err(MkError::TooFewPoints); }
+    if slopes.is_empty() {
+        return Err(MkError::TooFewPoints);
+    }
     slopes.sort_by(|a, b| a.total_cmp(b));
 
     let z = z_score(s_tot, var_tot);
     let p = p_value(z, alt);
     Ok(SeasonalResult {
-        n: n_used, s: s_tot, var_s: var_tot, z, p,
+        n: n_used,
+        s: s_tot,
+        var_s: var_tot,
+        z,
+        p,
         significant: p < alpha,
         direction: direction_of(s_tot),
         sen_slope: median_sorted(&slopes),
@@ -389,14 +503,19 @@ pub fn seasonal_mann_kendall(t: &[f64], v: &[f64], season: &[usize], n_seasons: 
 /// A rise gives a negative U at the change; a drop gives a positive U.
 pub fn pettitt(v: &[f64], alpha: f64) -> Result<PettittResult, MkError> {
     let n = v.len();
-    if n < 4 { return Err(MkError::TooFewPoints); }
+    if n < 4 {
+        return Err(MkError::TooFewPoints);
+    }
     let r = avg_ranks(v);
     let nf = n as f64;
     let (mut cum, mut best_t, mut best_u) = (0.0f64, 1usize, 0.0f64);
     for t in 1..n {
         cum += r[t - 1];
         let u = 2.0 * cum - t as f64 * (nf + 1.0);
-        if u.abs() > best_u.abs() { best_u = u; best_t = t; }
+        if u.abs() > best_u.abs() {
+            best_u = u;
+            best_t = t;
+        }
     }
     let k = best_u.abs();
     let p = (2.0 * (-6.0 * k * k / (nf.powi(3) + nf.powi(2))).exp()).min(1.0);
@@ -432,19 +551,29 @@ pub fn benjamini_hochberg(p: &[f64]) -> Vec<f64> {
 
 /// Drop NaN/inf readings (dropouts) but keep timestamps aligned.
 pub fn drop_missing(t: &[f64], v: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    t.iter().zip(v).filter(|(_, y)| y.is_finite()).map(|(&a, &b)| (a, b)).unzip()
+    t.iter()
+        .zip(v)
+        .filter(|(_, y)| y.is_finite())
+        .map(|(&a, &b)| (a, b))
+        .unzip()
 }
 
 /// Sub-daily samples (unix seconds) -> one mean per day. Output time is in days.
 pub fn daily_means(t_unix: &[f64], v: &[f64]) -> (Vec<f64>, Vec<f64>) {
     let mut days: BTreeMap<i64, (f64, usize)> = BTreeMap::new();
     for (&t, &y) in t_unix.iter().zip(v) {
-        if !y.is_finite() { continue; }
-        let e = days.entry((t / 86_400.0).floor() as i64).or_insert((0.0, 0));
+        if !y.is_finite() {
+            continue;
+        }
+        let e = days
+            .entry((t / 86_400.0).floor() as i64)
+            .or_insert((0.0, 0));
         e.0 += y;
         e.1 += 1;
     }
-    days.into_iter().map(|(d, (sum, c))| (d as f64, sum / c as f64)).unzip()
+    days.into_iter()
+        .map(|(d, (sum, c))| (d as f64, sum / c as f64))
+        .unzip()
 }
 
 /// Lower-level seasonal MK on pre-grouped values: returns (S', Var(S'), Z).
@@ -472,8 +601,12 @@ pub fn group_by_hour(t_unix: &[f64], v: &[f64]) -> Vec<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn close(a: f64, b: f64, tol: f64) -> bool { (a - b).abs() < tol }
-    fn idx(n: usize) -> Vec<f64> { (1..=n).map(|i| i as f64).collect() }
+    fn close(a: f64, b: f64, tol: f64) -> bool {
+        (a - b).abs() < tol
+    }
+    fn idx(n: usize) -> Vec<f64> {
+        (1..=n).map(|i| i as f64).collect()
+    }
     const UP: [f64; 8] = [10.0, 12.0, 11.0, 14.0, 13.0, 15.0, 17.0, 16.0];
 
     #[test]
@@ -520,9 +653,24 @@ mod tests {
     }
     #[test]
     fn errors() {
-        assert_eq!(mann_kendall(&idx(3), &[1.0, 2.0, 3.0], 0.05, Alternative::TwoSided).unwrap_err(), MkError::TooFewPoints);
-        assert_eq!(mann_kendall(&idx(4), &[1.0, 2.0], 0.05, Alternative::TwoSided).unwrap_err(), MkError::LengthMismatch);
-        assert_eq!(mann_kendall(&[1.0, 1.0, 2.0, 3.0], &[1.0, 2.0, 3.0, 4.0], 0.05, Alternative::TwoSided).unwrap_err(), MkError::NotIncreasingTime);
+        assert_eq!(
+            mann_kendall(&idx(3), &[1.0, 2.0, 3.0], 0.05, Alternative::TwoSided).unwrap_err(),
+            MkError::TooFewPoints
+        );
+        assert_eq!(
+            mann_kendall(&idx(4), &[1.0, 2.0], 0.05, Alternative::TwoSided).unwrap_err(),
+            MkError::LengthMismatch
+        );
+        assert_eq!(
+            mann_kendall(
+                &[1.0, 1.0, 2.0, 3.0],
+                &[1.0, 2.0, 3.0, 4.0],
+                0.05,
+                Alternative::TwoSided
+            )
+            .unwrap_err(),
+            MkError::NotIncreasingTime
+        );
     }
     #[test]
     fn all_equal_is_flat_no_nan() {
@@ -548,8 +696,11 @@ mod tests {
     #[test]
     fn seasonal_example() {
         let groups = vec![
-            vec![20.0, 22.0, 25.0, 26.0], vec![30.0, 33.0, 31.0, 36.0],
-            vec![40.0, 41.0, 45.0, 47.0], vec![25.0, 24.0, 27.0, 26.0]];
+            vec![20.0, 22.0, 25.0, 26.0],
+            vec![30.0, 33.0, 31.0, 36.0],
+            vec![40.0, 41.0, 45.0, 47.0],
+            vec![25.0, 24.0, 27.0, 26.0],
+        ];
         let (s, var, z) = seasonal_mk(&groups);
         assert_eq!(s, 18);
         assert!(close(var, 34.667, 1e-3));
@@ -558,14 +709,24 @@ mod tests {
     #[test]
     fn seasonal_full_matches_hand_example() {
         // quarterly table from the explanation, time = year number, season = quarter
-        let tab = [[20.0, 30.0, 40.0, 25.0], [22.0, 33.0, 41.0, 24.0],
-                   [25.0, 31.0, 45.0, 27.0], [26.0, 36.0, 47.0, 26.0]];
+        let tab = [
+            [20.0, 30.0, 40.0, 25.0],
+            [22.0, 33.0, 41.0, 24.0],
+            [25.0, 31.0, 45.0, 27.0],
+            [26.0, 36.0, 47.0, 26.0],
+        ];
         let (mut t, mut v, mut s) = (vec![], vec![], vec![]);
         for (y, row) in tab.iter().enumerate() {
-            for (q, &x) in row.iter().enumerate() { t.push(y as f64); v.push(x); s.push(q); }
+            for (q, &x) in row.iter().enumerate() {
+                t.push(y as f64);
+                v.push(x);
+                s.push(q);
+            }
         }
         // time must be strictly increasing overall: use y + q/4
-        for i in 0..t.len() { t[i] += s[i] as f64 / 4.0; }
+        for i in 0..t.len() {
+            t[i] += s[i] as f64 / 4.0;
+        }
         let r = seasonal_mann_kendall(&t, &v, &s, 4, 0.05, Alternative::TwoSided).unwrap();
         assert_eq!(r.s, 18);
         assert_eq!(r.season_s, vec![6, 4, 6, 2]);
@@ -594,7 +755,9 @@ mod tests {
         assert!(close(norm_ppf(0.95), 1.644854, 1e-5));
         assert!(close(norm_ppf(0.995), 2.575829, 1e-5));
         assert!(close(norm_ppf(0.01), -2.326348, 1e-5));
-        for &x in &[-2.5, -1.0, 0.3, 1.7] { assert!(close(norm_ppf(norm_cdf(x)), x, 1e-5)); }
+        for &x in &[-2.5, -1.0, 0.3, 1.7] {
+            assert!(close(norm_ppf(norm_cdf(x)), x, 1e-5));
+        }
     }
     #[test]
     fn calendar_helpers() {
@@ -604,7 +767,10 @@ mod tests {
         assert_eq!(civil_from_unix(0.0), (1970, 1, 1));
         assert_eq!(civil_from_unix(1_794_661_200.0 - 86_400.0 * 0.0).0, 2026);
         assert_eq!(months_of(&[1_709_164_800.0, 946_684_800.0]), vec![1, 0]);
-        assert_eq!(year_mask(&[0.0, 946_684_800.0, 1_709_164_800.0], 1991, 2020), vec![false, true, false]);
+        assert_eq!(
+            year_mask(&[0.0, 946_684_800.0, 1_709_164_800.0], 1991, 2020),
+            vec![false, true, false]
+        );
     }
     #[test]
     fn anomalies_remove_cycle() {
@@ -613,14 +779,22 @@ mod tests {
         let s = [0, 1, 0, 1, 0, 1];
         let a = anomalies(&v, &s, 2, None).unwrap();
         let want = [-1.0, -1.0, 0.0, 0.0, 1.0, 1.0];
-        for i in 0..6 { assert!(close(a[i], want[i], 1e-12)); }
+        for i in 0..6 {
+            assert!(close(a[i], want[i], 1e-12));
+        }
         // baseline = first two years only
         let base = [true, true, true, true, false, false];
         let b = anomalies(&v, &s, 2, Some(&base)).unwrap();
         assert!(close(b[4], 12.0 - 10.5, 1e-12) && close(b[5], 22.0 - 20.5, 1e-12));
-        assert_eq!(anomalies(&v, &[0, 5, 0, 1, 0, 1], 2, None).unwrap_err(), MkError::BadSeason);
+        assert_eq!(
+            anomalies(&v, &[0, 5, 0, 1, 0, 1], 2, None).unwrap_err(),
+            MkError::BadSeason
+        );
         let none = [false; 6];
-        assert_eq!(anomalies(&v, &s, 2, Some(&none)).unwrap_err(), MkError::EmptyBaseline);
+        assert_eq!(
+            anomalies(&v, &s, 2, Some(&none)).unwrap_err(),
+            MkError::EmptyBaseline
+        );
     }
     #[test]
     fn pettitt_finds_step() {
@@ -636,7 +810,9 @@ mod tests {
     fn bh_known_values() {
         let q = benjamini_hochberg(&[0.01, 0.04, 0.03, 0.005]);
         let want = [0.02, 0.04, 0.04, 0.02];
-        for i in 0..4 { assert!(close(q[i], want[i], 1e-12)); }
+        for i in 0..4 {
+            assert!(close(q[i], want[i], 1e-12));
+        }
         assert!(benjamini_hochberg(&[]).is_empty());
         assert!(benjamini_hochberg(&[0.9, 0.8]).iter().all(|&x| x <= 1.0));
     }
