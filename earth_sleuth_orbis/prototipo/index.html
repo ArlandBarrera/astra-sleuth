@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Earth Sleuth Orbis – Test rápido</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .25rem; }
+    .fila { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+    label { display: flex; flex-direction: column; font-size: .85rem; }
+    select, input, button { padding: .4rem; font-size: 1rem; }
+    #aviso { color: #a15c00; min-height: 1.2rem; }
+    #estado { color: #555; min-height: 1.2rem; }
+    canvas { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Earth Sleuth Orbis</h1>
+  <p>Elige una variable, una ubicación y mira su serie mensual.</p>
+
+  <!-- Lista de prueba de la sección 1 -->
+  <ul id="lista"></ul>
+
+  <div class="fila">
+    <label>Variable
+      <select id="variable"></select>
+    </label>
+    <label>Latitud
+      <input id="lat" type="number" step="any" value="4.6">
+    </label>
+    <label>Longitud
+      <input id="lon" type="number" step="any" value="-74.1">
+    </label>
+    <label>Año inicio
+      <input id="inicio" type="number" value="2015">
+    </label>
+    <label>Año fin
+      <input id="fin" type="number" value="2020">
+    </label>
+    <button id="boton">Consultar</button>
+  </div>
+
+  <p id="aviso"></p>
+  <p id="estado"></p>
+
+  <canvas id="grafica"></canvas>
+
+  <!-- Chart.js para la sección 3 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Tu código JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>
