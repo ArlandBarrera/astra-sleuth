@@ -5,6 +5,20 @@ import type { AnalyzeOut, CoupleOut } from "./engine/types";
 import type { Region } from "./geo";
 
 export type Slot = "A" | "B";
+export type Lang = "es" | "en";
+
+function initialLang(): Lang {
+  // ?lang=en / ?lang=es permite compartir un enlace en un idioma concreto
+  const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("lang") : null;
+  if (q === "es" || q === "en") return q;
+  try {
+    const saved = localStorage.getItem("lang");
+    if (saved === "es" || saved === "en") return saved;
+  } catch {
+    /* almacenamiento bloqueado */
+  }
+  return typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("es") ? "es" : "en";
+}
 
 export interface RegionResult {
   slot: Slot;
@@ -38,6 +52,7 @@ export type Run =
   | { status: "done"; analysis: Analysis };
 
 export interface State {
+  lang: Lang;
   level: "student" | "scientist";
   variableId: string;
   pairId: string | null;
@@ -63,6 +78,7 @@ export interface State {
 export const CURRENT_YEAR = 2026;
 
 let state: State = {
+  lang: initialLang(),
   level: "student",
   variableId: "T2M",
   pairId: null,

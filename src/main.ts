@@ -6,18 +6,19 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "./styles.css";
 
 import { lowerName } from "./text";
-import { SHORT, applicable, endYearOf, getVar, pairsOf, startYearOf } from "./catalog";
+import { applicable, endYearOf, getVar, pairsOf, short, startYearOf, varName } from "./catalog";
 import { parseCsv } from "./data/csv";
 import { getSeries } from "./data/fetch";
 import { monthKey, validCount, type MonthlySeries } from "./data/series";
 import { engine } from "./engine/client";
 import type { AnalyzeOut, CoupleOut } from "./engine/types";
-import { classify, clampLat, normLon, preloadLand, SURFACE_LABEL, type Region } from "./geo";
+import { classify, clampLat, describeRegion, normLon, preloadLand, surfaceLabel, type Region } from "./geo";
+import { L } from "./i18n";
 import { counterpart } from "./hints";
 import { PRESETS } from "./presets";
 import { CURRENT_YEAR, getState, setState, subscribe, type Analysis, type RegionResult, type Slot, type State } from "./state";
 import { exportCsv, exportDossier, exportJson } from "./ui/dossier";
-import { createMap, type BaseLayer } from "./ui/map";
+import { createMap, type BaseLayer, type DrawTool } from "./ui/map";
 import { renderPanel } from "./ui/panel";
 import { currentFigures, redrawFigures, renderResults, splitFor } from "./ui/results";
 
@@ -27,27 +28,28 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="topbar">
     <div class="brand">
-      <span class="brand-name">Earth System Trend Detective</span>
-      <span class="brand-sub">Tendencias de varias décadas con datos de NASA y NOAA</span>
+      <span class="brand-name">Astra Sleuth</span>
+      <span class="brand-sub" id="brand-sub"></span>
     </div>
     <div class="topbar-right">
-      <span class="engine-status mono" id="engine-status" aria-live="polite"></span>
-      <span class="field-label">Nivel de detalle</span>
-      <div class="seg seg-sm" role="radiogroup" aria-label="Nivel de detalle" id="level"></div>
+      <span class="field-label" id="level-label"></span>
+      <div class="seg seg-sm" role="radiogroup" id="level"></div>
+      <div class="seg seg-sm lang-seg" role="radiogroup" id="lang"></div>
     </div>
   </header>
   <div class="layout">
-    <aside class="panel" id="panel" aria-label="Panel de investigación"></aside>
+    <aside class="panel" id="panel"></aside>
     <main class="main" id="main">
-      <section class="map-wrap" aria-label="Globo para elegir la región">
+      <section class="map-wrap" id="map-wrap">
         <div id="map"></div>
         <div class="map-tools">
-          <div class="seg seg-sm" role="radiogroup" aria-label="Mapa base" id="base"></div>
-          <label class="switch switch-sm"><input type="checkbox" id="ctx"><span id="ctx-label">Capa NASA GIBS</span></label>
+          <div class="seg seg-sm" role="radiogroup" id="base"></div>
+          <label class="switch switch-sm"><input type="checkbox" id="ctx"><span id="ctx-label"></span></label>
         </div>
+        <div class="draw-hint" id="draw-hint" role="status" aria-live="polite" hidden></div>
         <div class="map-notice" id="notice" role="status" aria-live="polite" hidden></div>
       </section>
-      <div class="stale" id="stale" hidden>Cambiaste los parámetros. Pulsa <strong>Analizar tendencia</strong> para actualizar los resultados.</div>
+      <div class="stale" id="stale" hidden></div>
       <div class="results" id="results"></div>
     </main>
   </div>`;
@@ -58,47 +60,113 @@ const noticeEl = document.getElementById("notice")!;
 const staleEl = document.getElementById("stale")!;
 const ctxBox = document.getElementById("ctx") as HTMLInputElement;
 const ctxLabel = document.getElementById("ctx-label")!;
+const drawHintEl = document.getElementById("draw-hint")!;
 
 let base: BaseLayer = "relief";
 let showContext = false;
+let drawTool: DrawTool = null;
 
 const map = createMap(document.getElementById("map")!, {
-  onPick: (kind, lat, lon, bbox) => void pickRegion({ kind, lat, lon, bbox }),
+  onPick: (kind, lat, lon, bbox) => void pickRegion({ kind, lat, lon, bbox }, undefined, true),
   onError: (msg) => notify(msg),
+  onTool: (tool) => {
+    drawTool = tool;
+    renderDrawHint(getState());
+  },
 });
 preloadLand();
 
 // ---------------------------------------------------------------- avisos
 
 let noticeTimer = 0;
-function notify(msg: string): void {
+function notify(msg: string, kind: "info" | "ok" = "info"): void {
   noticeEl.textContent = msg;
+  noticeEl.dataset.kind = kind;
   noticeEl.hidden = false;
+  // reinicia la animación de entrada
+  noticeEl.classList.remove("is-in");
+  void noticeEl.offsetWidth;
+  noticeEl.classList.add("is-in");
   clearTimeout(noticeTimer);
   noticeTimer = window.setTimeout(() => (noticeEl.hidden = true), 8000);
 }
 
+/** Instrucción fija mientras una herramienta de dibujo está activa. */
+function renderDrawHint(s: State): void {
+  if (!drawTool) {
+    drawHintEl.hidden = true;
+    return;
+  }
+  const slot = s.mode === "dipole" ? s.activeSlot : "A";
+  const target = s.mode === "dipole" ? L(` para la región ${slot}`, ` for region ${slot}`) : "";
+  drawHintEl.innerHTML =
+    drawTool === "point"
+      ? `<strong>${L("Modo punto activo", "Point mode on")}</strong> ${L(
+          `Haz clic en el globo para colocar el punto${target}.`,
+          `Click on the globe to place the point${target}.`,
+        )}`
+      : `<strong>${L("Modo rectángulo activo", "Rectangle mode on")}</strong> ${L(
+          `Haz clic en una esquina del área${target} y luego en la esquina opuesta.`,
+          `Click one corner of the area${target}, then the opposite corner.`,
+        )}`;
+  drawHintEl.dataset.tool = drawTool;
+  drawHintEl.hidden = false;
+}
+
 // ---------------------------------------------------------------- render
 
+function seg(items: { v: string; label: string; title?: string }[], value: string, action: string): string {
+  return items
+    .map(
+      (it) =>
+        `<button type="button" role="radio" class="seg-btn${value === it.v ? " is-on" : ""}" aria-checked="${value === it.v}" data-action="${action}" data-v="${it.v}"${it.title ? ` title="${it.title}" aria-label="${it.title}"` : ""}>${it.label}</button>`,
+    )
+    .join("");
+}
+
 function renderChrome(s: State): void {
-  const es = document.getElementById("engine-status")!;
-  es.textContent = s.engine === "ready" ? "Motor Rust/WASM: listo" : s.engine === "loading" ? "Motor Rust/WASM: cargando" : "Motor Rust/WASM: error";
-  es.dataset.state = s.engine;
+  document.getElementById("brand-sub")!.textContent = L("Tendencias de varias décadas con datos de NASA y NOAA", "Multi-decade trends from NASA and NOAA data");
+  document.getElementById("level-label")!.textContent = L("Nivel de detalle", "Detail level");
   const lv = document.getElementById("level")!;
-  lv.innerHTML = (["student", "scientist"] as const)
-    .map(
-      (v) =>
-        `<button type="button" role="radio" class="seg-btn${s.level === v ? " is-on" : ""}" aria-checked="${s.level === v}" data-action="level" data-v="${v}">${v === "student" ? "Estudiante" : "Científico"}</button>`,
-    )
-    .join("");
-  document.getElementById("base")!.innerHTML = (["relief", "plain"] as const)
-    .map(
-      (v) =>
-        `<button type="button" role="radio" class="seg-btn${base === v ? " is-on" : ""}" aria-checked="${base === v}" data-action="base" data-v="${v}">${v === "relief" ? "Relieve" : "Tierra y agua"}</button>`,
-    )
-    .join("");
-  ctxLabel.textContent = `Capa NASA GIBS: ${lowerName(SHORT[s.variableId])}`;
+  lv.setAttribute("aria-label", L("Nivel de detalle", "Detail level"));
+  lv.innerHTML = seg(
+    [
+      { v: "student", label: L("Estudiante", "Student"), title: L("Explicaciones en lenguaje claro y glosario", "Plain-language explanations and glossary") },
+      { v: "scientist", label: L("Científico", "Scientist"), title: L("Estadísticos completos, códigos de dataset y métodos", "Full statistics, dataset codes and methods") },
+    ],
+    s.level,
+    "level",
+  );
+  const lg = document.getElementById("lang")!;
+  lg.setAttribute("aria-label", L("Idioma", "Language"));
+  lg.innerHTML = seg(
+    [
+      { v: "es", label: "ES", title: "Español" },
+      { v: "en", label: "EN", title: "English" },
+    ],
+    s.lang,
+    "lang",
+  );
+  const bs = document.getElementById("base")!;
+  bs.setAttribute("aria-label", L("Mapa base", "Base map"));
+  bs.innerHTML = seg(
+    [
+      { v: "relief", label: L("Relieve", "Relief") },
+      { v: "plain", label: L("Tierra y agua", "Land and water") },
+    ],
+    base,
+    "base",
+  );
+  ctxLabel.textContent = `${L("Capa NASA GIBS", "NASA GIBS layer")}: ${lowerName(short(s.variableId))}`;
+  staleEl.innerHTML = L(
+    "Cambiaste los parámetros. Pulsa <strong>Analizar tendencia</strong> para actualizar los resultados.",
+    "You changed the parameters. Press <strong>Analyze trend</strong> to update the results.",
+  );
+  panelEl.setAttribute("aria-label", L("Panel de investigación", "Investigation panel"));
+  document.getElementById("map-wrap")!.setAttribute("aria-label", L("Globo para elegir la región", "Globe for choosing the region"));
+  document.documentElement.lang = s.lang;
   document.body.classList.toggle("level-sci", s.level === "scientist");
+  renderDrawHint(s);
 }
 
 function isStale(s: State): boolean {
@@ -125,13 +193,14 @@ subscribe((s, prev) => {
   renderChrome(s);
   if (s.regions !== prev.regions || s.activeSlot !== prev.activeSlot || s.mode !== prev.mode) map.setRegions(s.regions, s.activeSlot, s.mode);
   if (s.variableId !== prev.variableId) map.setContext(showContext ? s.variableId : null);
-  if (s.run !== prev.run || s.hr !== prev.hr || s.view !== prev.view || s.level !== prev.level) renderResults(resultsEl, s);
+  if (s.lang !== prev.lang) map.relabel();
+  if (s.run !== prev.run || s.hr !== prev.hr || s.view !== prev.view || s.level !== prev.level || s.lang !== prev.lang) renderResults(resultsEl, s);
   staleEl.hidden = !isStale(s);
 });
 
 // ---------------------------------------------------------------- regiones
 
-async function pickRegion(r: Omit<Region, "surface">, slot?: Slot): Promise<void> {
+async function pickRegion(r: Omit<Region, "surface">, slot?: Slot, confirm = false): Promise<void> {
   const s = getState();
   const target = slot ?? (s.mode === "dipole" ? s.activeSlot : "A");
   const surface = await classify(r);
@@ -143,10 +212,21 @@ async function pickRegion(r: Omit<Region, "surface">, slot?: Slot): Promise<void
     return { regions, activeSlot };
   });
   const st = getState();
+  const what = region.kind === "point" ? L("Punto", "Point") : L("Área", "Area");
+  const label = st.mode === "dipole" ? ` ${target}` : "";
+  const done = L(`${what}${label} fijado: ${describeRegion(region)} (${surfaceLabel(surface).toLowerCase()}).`, `${what}${label} set: ${describeRegion(region)} (${surfaceLabel(surface).toLowerCase()}).`);
+  const next = st.mode === "dipole" && target === "A" && !st.regions.B ? L(" Ahora elige la región B.", " Now pick region B.") : L(" Pulsa Analizar tendencia cuando quieras.", " Press Analyze trend when ready.");
   if (!applicable(st.variableId, surface)) {
-    notify(`${getVar(st.variableId).name_es} no aplica sobre ${SURFACE_LABEL[surface].toLowerCase()}. Elige otra variable en el paso 1.`);
+    notify(
+      L(
+        `${varName(getVar(st.variableId))} no aplica sobre ${surfaceLabel(surface).toLowerCase()}. Elige otra variable en el paso 1.`,
+        `${varName(getVar(st.variableId))} does not apply over ${surfaceLabel(surface).toLowerCase()}. Choose another variable in step 1.`,
+      ),
+    );
   } else if (surface === "coast" && ["SST", "CHLOR_A"].includes(st.variableId)) {
-    notify("Esta región toca la costa: los datos del mar pueden faltar en las celdas de tierra.");
+    notify(`${done} ${L("Toca la costa: los datos del mar pueden faltar en las celdas de tierra.", "It touches the coast: sea data may be missing over land cells.")}`);
+  } else if (confirm) {
+    notify(done + next, "ok");
   }
 }
 
@@ -179,30 +259,48 @@ async function runAnalysis(): Promise<void> {
   const v = getVar(s.variableId);
   const opts = { y0: s.y0, y1: s.y1, chlSensor: s.chlSensor, aodSource: s.aodSource };
   const loading = (msg: string) => setState({ run: { status: "loading", msg } });
+  /** Mensaje de descarga con progreso por tramos (ERDDAP). */
+  const downloading = (base: string) => (done: number, total: number, host: string) => {
+    if (total <= 1) return;
+    let h = host;
+    try {
+      h = new URL(host).host;
+    } catch {
+      /* host sin URL */
+    }
+    loading(`${base} ${L(`tramo ${done} de ${total}`, `chunk ${done} of ${total}`)} · ${h}`);
+  };
 
   try {
     const results: Partial<Record<Slot, RegionResult>> = {};
     for (const slot of slots) {
       const region = s.regions[slot]!;
-      const where = s.mode === "dipole" ? ` (región ${slot})` : "";
-      loading(`Descargando ${v.name_es.toLowerCase()}${where}…`);
+      const where = s.mode === "dipole" ? L(` (región ${slot})`, ` (region ${slot})`) : "";
+      const vname = lowerName(varName(v));
+      const dl = L(`Descargando ${vname}${where}…`, `Downloading ${vname}${where}…`);
+      loading(dl);
       const csv = { [s.variableId]: s.csv[`${slot}:${s.variableId}`] };
-      const main = (await getSeries([s.variableId], region, opts, csv, signal))[s.variableId];
+      const main = (await getSeries([s.variableId], region, opts, csv, signal, downloading(dl)))[s.variableId];
       if (validCount(main) < 24) {
+        const sea = ["SST", "CHLOR_A"].includes(v.id);
         throw new Error(
-          `${v.name_es}${where}: solo hay ${validCount(main)} meses con datos en ese lugar y periodo. ` +
-            `Prueba otra región${["SST", "CHLOR_A"].includes(v.id) ? " (mar adentro)" : ""} o un periodo más largo.`,
+          L(
+            `${varName(v)}${where}: solo hay ${validCount(main)} meses con datos en ese lugar y periodo. Prueba otra región${sea ? " (mar adentro)" : ""} o un periodo más largo.`,
+            `${varName(v)}${where}: only ${validCount(main)} months have data at that place and period. Try another region${sea ? " (farther offshore)" : ""} or a longer period.`,
+          ),
         );
       }
-      loading(`Calculando la tendencia en Rust/WASM${where}…`);
+      loading(L(`Calculando la tendencia${where}…`, `Computing the trend${where}…`));
       const stats = await analyzeSeries(main, s.season);
       const rr: RegionResult = { slot, region, series: main, stats };
 
       if (s.pairId) {
         try {
-          loading(`Descargando ${getVar(s.pairId).name_es.toLowerCase()} para el acoplamiento${where}…`);
+          const pname = lowerName(varName(getVar(s.pairId)));
+          const pdl = L(`Descargando ${pname} para el acoplamiento${where}…`, `Downloading ${pname} for the coupling${where}…`);
+          loading(pdl);
           const pcsv = { [s.pairId]: s.csv[`${slot}:${s.pairId}`] };
-          const ps = (await getSeries([s.pairId], region, opts, pcsv, signal))[s.pairId];
+          const ps = (await getSeries([s.pairId], region, opts, pcsv, signal, downloading(pdl)))[s.pairId];
           if (validCount(ps) >= 24) {
             const pstats = await analyzeSeries(ps, "ALL");
             const split = splitFor(rr);
@@ -218,11 +316,11 @@ async function runAnalysis(): Promise<void> {
             );
             rr.pair = { id: s.pairId, series: ps, stats: pstats, couple };
           } else {
-            notify(`No hay suficientes datos de ${getVar(s.pairId).name_es.toLowerCase()} para el acoplamiento${where}.`);
+            notify(L(`No hay suficientes datos de ${pname} para el acoplamiento${where}.`, `Not enough ${pname} data for the coupling${where}.`));
           }
         } catch (e) {
           if ((e as Error).name === "AbortError") throw e;
-          notify(`Acoplamiento omitido${where}: ${(e as Error).message}`);
+          notify(`${L("Acoplamiento omitido", "Coupling skipped")}${where}: ${(e as Error).message}`);
         }
       }
       results[slot] = rr;
@@ -336,8 +434,8 @@ document.addEventListener("click", (e) => {
     case "suggest": {
       if (!s.regions.A) break;
       const c = counterpart(s.regions.A);
-      void pickRegion({ kind: "point", lat: c.lat, lon: c.lon, name: c.name }, "B").then(() => {
-        notify(`Sugerencia: ${c.name}. ${c.why}`);
+      void pickRegion({ kind: "point", lat: c.lat, lon: c.lon, name: c.name, name_en: c.name_en }, "B").then(() => {
+        notify(`${L("Sugerencia", "Suggestion")}: ${L(c.name, c.name_en)}. ${c.why}`);
         const st = getState();
         if (st.regions.A && st.regions.B) map.fitBoth(st.regions.A, st.regions.B);
       });
@@ -360,7 +458,29 @@ document.addEventListener("click", (e) => {
       setState({ view: v as State["view"] });
       break;
     case "level":
+      if (v === s.level) break;
       setState({ level: v as State["level"] });
+      notify(
+        v === "scientist"
+          ? L(
+              "Modo científico: se muestran estadísticos completos (S, Z, τ, p corregido), códigos de dataset, notas técnicas y URLs de las consultas.",
+              "Scientist mode: showing full statistics (S, Z, τ, corrected p), dataset codes, technical notes and query URLs.",
+            )
+          : L(
+              "Modo estudiante: explicaciones en lenguaje claro, pistas para investigar y glosario.",
+              "Student mode: plain-language explanations, research hints and glossary.",
+            ),
+        "ok",
+      );
+      break;
+    case "lang":
+      if (v !== "es" && v !== "en") break;
+      try {
+        localStorage.setItem("lang", v);
+      } catch {
+        /* almacenamiento bloqueado */
+      }
+      setState({ lang: v });
       break;
     case "base":
       base = v as BaseLayer;
@@ -411,14 +531,14 @@ document.addEventListener("change", (e) => {
       void file.text().then(
         (text) => {
           try {
-            const series = parseCsv(text, `CSV importado (${file.name})`);
+            const series = parseCsv(text, `${L("CSV importado", "Imported CSV")} (${file.name})`);
             setState((st) => ({ csv: { ...st.csv, [`${slot}:${st.variableId}`]: series } }));
-            notify(`CSV loaded: ${series.values.length} months (${series.years[0]}–${series.years.at(-1)}).`);
+            notify(L(`CSV cargado: ${series.values.length} meses (${series.years[0]}–${series.years.at(-1)}).`, `CSV loaded: ${series.values.length} months (${series.years[0]}–${series.years.at(-1)}).`), "ok");
           } catch (err) {
             notify((err as Error).message);
           }
         },
-        () => notify("The file could not be read."),
+        () => notify(L("No se pudo leer el archivo.", "The file could not be read.")),
       );
       break;
     }
@@ -432,10 +552,10 @@ document.addEventListener("submit", (e) => {
   const lat = parseFloat((f.elements.namedItem("lat") as HTMLInputElement).value);
   const lon = parseFloat((f.elements.namedItem("lon") as HTMLInputElement).value);
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-    notify("Coordenadas no válidas: latitud entre −90 y 90, longitud entre −180 y 180.");
+    notify(L("Coordenadas no válidas: latitud entre −90 y 90, longitud entre −180 y 180.", "Invalid coordinates: latitude between −90 and 90, longitude between −180 and 180."));
     return;
   }
-  void pickRegion({ kind: "point", lat, lon }).then(() => {
+  void pickRegion({ kind: "point", lat, lon }, undefined, true).then(() => {
     const st = getState();
     const r = st.regions[st.mode === "dipole" ? (st.activeSlot === "B" && st.regions.B ? "B" : "A") : "A"];
     if (r) map.flyTo(r);

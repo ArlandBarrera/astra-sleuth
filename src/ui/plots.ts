@@ -1,4 +1,5 @@
 // Figuras SVG exportables con Observable Plot: Significance Horizon y Regime Decoupling.
+import { L } from "../i18n";
 import * as Plot from "@observablehq/plot";
 import type { HorizonWindow } from "../engine/types";
 import { fmt } from "../text";
@@ -35,7 +36,7 @@ export function horizonPlot(sets: HorizonSet[], hr: boolean, width: number): SVG
     marks.push(
       Plot.dot(
         data.filter((d) => [5, 10, 20, 40].includes(d.years)),
-        { x: "years", y: "p", fill: s.color, r: 4, stroke: "#F4F3EF", strokeWidth: 1.5, title: (d: { years: number; p: number }) => `${d.years} años: p = ${d.p.toExponential(2)}` },
+        { x: "years", y: "p", fill: s.color, r: 4, stroke: "#F4F3EF", strokeWidth: 1.5, title: (d: { years: number; p: number }) => `${d.years} ${L("años", "years")}: p = ${d.p.toExponential(2)}` },
       ),
     );
   }
@@ -45,10 +46,10 @@ export function horizonPlot(sets: HorizonSet[], hr: boolean, width: number): SVG
     marginLeft: 62,
     marginBottom: 40,
     style: STYLE,
-    x: { label: "Años más recientes incluidos en la prueba →", domain: [5, maxX], ticks: [5, 10, 15, 20, 25, 30, 35, 40, 45].filter((t) => t <= maxX), grid: true },
+    x: { label: L("Años más recientes incluidos en la prueba →", "Most recent years included in the test →"), domain: [5, maxX], ticks: [5, 10, 15, 20, 25, 30, 35, 40, 45].filter((t) => t <= maxX), grid: true },
     y: {
       type: "log",
-      label: "↑ p-valor (escala logarítmica)",
+      label: L("↑ p-valor (escala logarítmica)", "↑ p-value (log scale)"),
       domain: [minP, 1],
       grid: true,
       tickFormat: (d: number) => (d >= 0.001 ? String(d).replace(".", ",") : `1e${Math.round(Math.log10(d))}`),

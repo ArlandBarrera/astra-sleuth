@@ -3,6 +3,7 @@
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import type { AnalyzeOut } from "../engine/types";
+import { L } from "../i18n";
 import { fmt, prettyUnits, ym } from "../text";
 
 export interface ChartInput {
@@ -42,21 +43,21 @@ export function timeSeriesChart(el: HTMLElement, c: ChartInput): ChartHandle {
 
   const data: uPlot.AlignedData = [xs];
   const series: uPlot.Series[] = [
-    { label: "Fecha", value: (_u, v) => (v == null ? "—" : ym(new Date(v * 1000).getUTCFullYear(), new Date(v * 1000).getUTCMonth() + 1)) },
+    { label: L("Fecha", "Date"), value: (_u, v) => (v == null ? "—" : ym(new Date(v * 1000).getUTCFullYear(), new Date(v * 1000).getUTCMonth() + 1)) },
   ];
   const bands: uPlot.Band[] = [];
   const valueFmt = (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmt(v)}${u ? " " + u : ""}`);
 
   if (c.view === "raw") {
     data.push(g.raw as (number | null)[]);
-    series.push({ label: "Valor mensual medido", stroke: c.color, width: 1.5, value: valueFmt, spanGaps: false });
+    series.push({ label: L("Valor mensual medido", "Measured monthly value"), stroke: c.color, width: 1.5, value: valueFmt, spanGaps: false });
   } else {
     data.push(g.anom as (number | null)[]);
-    series.push({ label: "Anomalía mensual", stroke: hexA(INK, 0.28), width: 1, value: valueFmt });
+    series.push({ label: L("Anomalía mensual", "Monthly anomaly"), stroke: hexA(INK, 0.28), width: 1, value: valueFmt });
     if (seasonal) {
       data.push(g.tested as (number | null)[]);
       series.push({
-        label: "Media de la estación",
+        label: L("Media de la estación", "Season mean"),
         stroke: c.color,
         width: 0,
         paths: () => null,
@@ -65,15 +66,15 @@ export function timeSeriesChart(el: HTMLElement, c: ChartInput): ChartHandle {
       });
     } else {
       data.push(g.smooth as (number | null)[]);
-      series.push({ label: "Promedio de 12 meses", stroke: c.color, width: 2, value: valueFmt });
+      series.push({ label: L("Promedio de 12 meses", "12-month average"), stroke: c.color, width: 2, value: valueFmt });
     }
     const lo = c.hr ? g.loHr : g.lo;
     const hi = c.hr ? g.hiHr : g.hi;
     data.push(g.fit as (number | null)[], lo as (number | null)[], hi as (number | null)[]);
     series.push(
-      { label: "Tendencia de Sen", stroke: INK, width: 1.75, dash: [6, 4], value: valueFmt },
-      { label: "Banda 95 % (inferior)", stroke: "transparent", width: 0, value: valueFmt, show: true },
-      { label: "Banda 95 % (superior)", stroke: "transparent", width: 0, value: valueFmt, show: true },
+      { label: L("Tendencia de Sen", "Sen trend"), stroke: INK, width: 1.75, dash: [6, 4], value: valueFmt },
+      { label: L("Banda 95 % (inferior)", "95% band (lower)"), stroke: "transparent", width: 0, value: valueFmt, show: true },
+      { label: L("Banda 95 % (superior)", "95% band (upper)"), stroke: "transparent", width: 0, value: valueFmt, show: true },
     );
     const n = series.length;
     bands.push({ series: [n - 1, n - 2], fill: hexA(c.color, 0.16) });
@@ -99,7 +100,7 @@ export function timeSeriesChart(el: HTMLElement, c: ChartInput): ChartHandle {
         size: 58,
         grid: { stroke: GRID, width: 1 },
         ticks: { stroke: GRID },
-        label: c.view === "anom" ? `Anomalía${u ? ` (${u})` : ""}` : u || "Valor",
+        label: c.view === "anom" ? `${L("Anomalía", "Anomaly")}${u ? ` (${u})` : ""}` : u || L("Valor", "Value"),
         labelFont: FONT,
         labelSize: 18,
         values: (_u, vals) => vals.map((v) => fmt(v, 2)),
@@ -154,7 +155,7 @@ export function timeSeriesChart(el: HTMLElement, c: ChartInput): ChartHandle {
           ctx.fillStyle = INK;
           ctx.font = `${10 * devicePixelRatio}px "IBM Plex Mono", monospace`;
           ctx.textBaseline = "bottom";
-          const text = `Quiebre ${ym(pet!.year, pet!.month)}`;
+          const text = `${L("Quiebre", "Shift")} ${ym(pet!.year, pet!.month)}`;
           const w = ctx.measureText(text).width;
           const tx = x + 4 * devicePixelRatio + w > p.bbox.left + p.bbox.width ? x - w - 4 * devicePixelRatio : x + 4 * devicePixelRatio;
           ctx.fillText(text, tx, top + height - 4 * devicePixelRatio);
@@ -170,7 +171,7 @@ export function timeSeriesChart(el: HTMLElement, c: ChartInput): ChartHandle {
   plot.root.querySelector(".u-legend")?.classList.add("chart-legend");
   // las series de la banda no necesitan fila propia en la leyenda
   plot.root.querySelectorAll(".u-legend .u-series").forEach((row, i) => {
-    if (String(series[i]?.label ?? "").startsWith("Banda")) (row as HTMLElement).style.display = "none";
+    if (/^(Banda|95% band)/.test(String(series[i]?.label ?? ""))) (row as HTMLElement).style.display = "none";
   });
 
   const ro = new ResizeObserver(() => {

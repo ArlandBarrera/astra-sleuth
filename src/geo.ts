@@ -4,6 +4,7 @@ import { geoContains } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 import type { Surface } from "./catalog";
+import { L } from "./i18n";
 
 export interface Region {
   kind: "point" | "bbox";
@@ -15,6 +16,8 @@ export interface Region {
   surface: Surface;
   /** Nombre opcional (casos de ejemplo). */
   name?: string;
+  /** Nombre en inglés, si difiere. */
+  name_en?: string;
 }
 
 /** Lleva cualquier longitud al rango [-180, 180). */
@@ -42,10 +45,13 @@ export function normalizeBbox(coords: [number, number][]): BboxResult {
   const n = Math.max(...lats);
   // Si el ancho aparente supera 180° el rectángulo cruzó el antimeridiano.
   if (e - w > 180) {
-    return { ok: false, reason: "El rectángulo cruza la línea de cambio de fecha (180°). Dibuja una caja a un solo lado." };
+    return {
+      ok: false,
+      reason: L("El rectángulo cruza la línea de cambio de fecha (180°). Dibuja una caja a un solo lado.", "The rectangle crosses the date line (180°). Draw a box on one side only."),
+    };
   }
   if (e - w < 0.05 || n - s < 0.05) {
-    return { ok: false, reason: "El rectángulo es demasiado pequeño. Usa un punto o dibuja un área mayor." };
+    return { ok: false, reason: L("El rectángulo es demasiado pequeño. Usa un punto o dibuja un área mayor.", "The rectangle is too small. Use a point or draw a larger area.") };
   }
   return { ok: true, bbox: [w, s, e, n] };
 }
@@ -59,20 +65,23 @@ export function fmtLat(lat: number): string {
   return `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? "N" : "S"}`;
 }
 export function fmtLon(lon: number): string {
-  return `${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? "E" : "O"}`;
+  return `${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? "E" : L("O", "W")}`;
 }
 
 export function describeRegion(r: Region): string {
   if (r.kind === "point") return `${fmtLat(r.lat)}, ${fmtLon(r.lon)}`;
   const [w, s, e, n] = r.bbox!;
-  return `${fmtLat(s)} a ${fmtLat(n)}, ${fmtLon(w)} a ${fmtLon(e)}`;
+  return `${fmtLat(s)} ${L("a", "to")} ${fmtLat(n)}, ${fmtLon(w)} ${L("a", "to")} ${fmtLon(e)}`;
 }
 
-export const SURFACE_LABEL: Record<Surface, string> = {
-  land: "Tierra",
-  ocean: "Océano",
-  coast: "Costa (tierra y mar)",
-};
+/** Nombre de la región en el idioma activo. */
+export function regionName(r: Pick<Region, "name" | "name_en">): string | undefined {
+  return L(r.name ?? "", r.name_en ?? r.name ?? "") || undefined;
+}
+
+export function surfaceLabel(s: Surface): string {
+  return s === "land" ? L("Tierra", "Land") : s === "ocean" ? L("Océano", "Ocean") : L("Costa (tierra y mar)", "Coast (land and sea)");
+}
 
 // ---------------------------------------------------------------- máscara de tierra
 

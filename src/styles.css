@@ -1,4 +1,4 @@
-/* Earth System Trend Detective
+/* Astra Sleuth
    Estándar visual "NASA JPL Telemetry & Swiss Field Manual": papel técnico claro,
    bordes de 1px, radio 0–2px, sin sombras, sin gradientes, sin glassmorphism. */
 
@@ -669,6 +669,61 @@ details summary {
 .region-marker.is-active {
   outline: 2px solid var(--ink);
 }
+/* instrucción fija mientras una herramienta de dibujo está activa */
+.draw-hint {
+  position: absolute;
+  top: 12px;
+  right: 56px;
+  max-width: min(360px, calc(100% - 200px));
+  padding: 8px 12px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 13px;
+  line-height: 1.4;
+  z-index: 3;
+  border-radius: var(--r);
+  animation: notice-in 0.18s ease-out;
+}
+.draw-hint strong {
+  display: block;
+  font: 600 11px/1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9fd3f0;
+}
+#map.is-drawing .maplibregl-canvas {
+  cursor: crosshair;
+}
+.maplibregl-terradraw-add-control.active {
+  background-color: #cfe3ef !important;
+  outline: 2px solid var(--a);
+  outline-offset: -2px;
+}
+.map-notice[data-kind="ok"] {
+  border-left-color: #2e7d4f;
+}
+.map-notice.is-in {
+  animation: notice-in 0.18s ease-out;
+}
+@keyframes notice-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 640px) {
+  .draw-hint {
+    left: 12px;
+    right: 56px;
+    top: auto;
+    bottom: 64px;
+    max-width: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .draw-hint,
+  .map-notice.is-in {
+    animation: none;
+  }
+}
 
 /* MapLibre / terra-draw: mismas reglas (sin sombras, radio mínimo) */
 .maplibregl-ctrl-group {
@@ -1065,6 +1120,30 @@ details summary {
 body:not(.level-sci) .tech {
   display: none;
 }
+.var-code {
+  color: var(--ink-2);
+  word-break: break-all;
+}
+.src-ids {
+  color: var(--ink-2);
+  word-break: break-all;
+  margin-top: -4px;
+}
+.stat-line {
+  margin: 4px 0 8px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.sci-list {
+  list-style: none;
+  padding-left: 0;
+}
+.sci-list li {
+  margin: 6px 0;
+}
+.lang-seg {
+  margin-left: 4px;
+}
 
 /* ------------------------------------------------------------ responsive */
 
@@ -1138,30 +1217,6 @@ body:not(.level-sci) .tech {
   }
 }
 
-.engine-status {
-  font-size: 11px;
-  color: var(--muted);
-  padding-right: 10px;
-  margin-right: 2px;
-  border-right: 1px solid var(--rule-soft);
-}
-.engine-status[data-state="ready"]::before {
-  content: "";
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  background: var(--a);
-  vertical-align: 1px;
-}
-.engine-status[data-state="error"] {
-  color: var(--crit);
-}
-@media (max-width: 640px) {
-  .engine-status {
-    display: none;
-  }
-}
 .csv-alt {
   padding: 0 10px 8px 42px;
   color: var(--ink-2);

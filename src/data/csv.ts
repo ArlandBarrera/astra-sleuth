@@ -1,93 +1,97 @@
-// CSV import: time series exported from NASA Giovanni ("Time Series, Area-Averaged")
-// or any file with date and value columns. Daily data are averaged by month.
-//
-// Design: (1) RFC 4180 tokenizer for quoted fields, internal delimiters, and
-// line breaks, (2) delimiter detected once per file, (3) date and value columns
-// selected once per file, and (4) discarded data tracked in `notes`.
-import { clean, keyYear, MonthAccumulator, toGrid, type MonthlySeries } from "./series";
+// CSV import for time series exported from NASA Giovanni ("Time Series, Area-Averaged")
+// or any file containing date and value columns. Daily data are aggregated into
+// monthly averages.
+
+import { L } from "../i18n";
+import { clean, monthKey, toGrid, type MonthlySeries } from "./series";
 
 export interface CsvOptions {
   /** Zero-based date column. The parser detects it when omitted. */
   dateColumn?: number;
-  /** Zero-based value column or a fragment contained in its header. */
+  /** Zero-based value column or a case-insensitive header fragment. */
   valueColumn?: number | string;
+  /** Force comma-decimal parsing when the delimiter is not a comma. */
+  decimalComma?: boolean;
 }
 
-// ---------- Dates ----------
-
-type DatePattern = [re: RegExp, yearGroup: number, monthGroup: number];
+type DatePattern = [pattern: RegExp, yearGroup: number, monthGroup: number];
 
 const DATE_PATTERNS: DatePattern[] = [
   [/^(\d{4})-(\d{1,2})(?:-\d{1,2})?(?:[ T].*)?$/, 1, 2], // 2002-07, 2002-07-01, 2002-07-01T00:00:00Z
-  [/^(\d{4})\/(\d{1,2})(?:\/\d{1,2})?$/, 1, 2], // 2002/07/01
+  [/^(\d{4})\/(\d{1,2})(?:\/\d{1,2})?(?:[ T].*)?$/, 1, 2], // 2002/07, 2002/07/01
   [/^(\d{4})(\d{2})(?:\d{2})?$/, 1, 2], // 200207, 20020701
-  [/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:[ T].*)?$/, 3, 2], // 01/07/2002 (DD/MM/AAAA)
-  [/^(\d{1,2})[/.-](\d{4})$/, 2, 1], // 07/2002 (MM/AAAA)
+  [/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})(?:[ T].*)?$/, 3, 2], // 01/07/2002 (DD/MM/YYYY)
+  [/^(\d{1,2})[\/.-](\d{4})$/, 2, 1], // 07/2002 (MM/YYYY)
 ];
 
+const MISSING_VALUES = new Set(["", "na", "n/a", "nan", "null", "none", "-", "--", "---"]);
+const NUMBER_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+const VALUE_HEADER_PATTERN = /mean|avg|average|value|valor|media|dato/i;
+
 function parseDate(cell: string): [number, number] | null {
-  const c = cell.trim();
-  for (const [re, yi, mi] of DATE_PATTERNS) {
-    const m = c.match(re);
-    if (!m) continue;
-    const y = +m[yi];
-    const mo = +m[mi];
-    if (y >= 1900 && y <= 2100 && mo >= 1 && mo <= 12) return [y, mo];
+  const value = cell.trim();
+  for (const [pattern, yearGroup, monthGroup] of DATE_PATTERNS) {
+    const match = value.match(pattern);
+    if (!match) continue;
+
+    const year = Number(match[yearGroup]);
+    const month = Number(match[monthGroup]);
+    if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12) return [year, month];
   }
   return null;
 }
 
-// ---------- Numbers ----------
-
-const MISSING = new Set(["", "na", "n/a", "nan", "null", "none", "-", "--", "---"]);
-const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
-
-/** Strict parsing: "12abc" is no longer converted to 12 as with parseFloat. */
 function parseNumber(raw: string, decimalComma: boolean): number | null {
-  let s = raw.trim();
-  if (decimalComma && /^[+-]?\d+,\d+(?:e[+-]?\d+)?$/i.test(s)) s = s.replace(",", ".");
-  return NUM_RE.test(s) ? Number(s) : null;
+  let value = raw.trim();
+  if (decimalComma && /^[+-]?\d+,\d+(?:e[+-]?\d+)?$/i.test(value)) value = value.replace(",", ".");
+  return NUMBER_PATTERN.test(value) ? Number(value) : null;
 }
 
-// ---------- CSV tokenizer ----------
+function countOutsideQuotes(line: string, delimiter: string): number {
+  let count = 0;
+  let quoted = false;
 
-function countOutsideQuotes(line: string, d: string): number {
-  let n = 0;
-  let q = false;
-  for (const ch of line) {
-    if (ch === '"') q = !q;
-    else if (ch === d && !q) n++;
-  }
-  return n;
-}
-
-/** Choose the delimiter with the most consistent count per line. */
-function detectDelimiter(text: string): string {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim()).slice(0, 50);
-  let best = ",";
-  let bestScore = 0;
-  for (const d of [",", ";", "\t"]) {
-    const freq = new Map<number, number>();
-    for (const l of lines) {
-      const n = countOutsideQuotes(l, d);
-      if (n > 0) freq.set(n, (freq.get(n) ?? 0) + 1);
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') {
+      if (quoted && line[i + 1] === '"') i++;
+      else quoted = !quoted;
+    } else if (line[i] === delimiter && !quoted) {
+      count++;
     }
-    for (const [n, f] of freq) {
-      const score = f * 1000 + n;
+  }
+  return count;
+}
+
+/** Detect the delimiter with the most consistent field count in the sample. */
+function detectDelimiter(text: string): string {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim()).slice(0, 50);
+  let bestDelimiter = ",";
+  let bestScore = 0;
+
+  for (const delimiter of [",", ";", "\t"]) {
+    const frequencies = new Map<number, number>();
+    for (const line of lines) {
+      const count = countOutsideQuotes(line, delimiter);
+      if (count > 0) frequencies.set(count, (frequencies.get(count) ?? 0) + 1);
+    }
+
+    for (const [count, frequency] of frequencies) {
+      const score = frequency * 1000 + count;
       if (score > bestScore) {
-        best = d;
+        bestDelimiter = delimiter;
         bestScore = score;
       }
     }
   }
-  return best;
+  return bestDelimiter;
 }
 
-function parseRows(text: string, delim: string): string[][] {
+/** Parse RFC 4180-style rows, including quoted delimiters and line breaks. */
+function parseRows(text: string, delimiter: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
-  let inQuotes = false;
+  let quoted = false;
 
   const endField = () => {
     row.push(field);
@@ -95,132 +99,175 @@ function parseRows(text: string, delim: string): string[][] {
   };
   const endRow = () => {
     endField();
-    if (row.some((c) => c.trim() !== "")) rows.push(row);
+    if (row.some((cell) => cell.trim() !== "")) rows.push(row);
     row = [];
   };
 
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
+    const character = text[i];
+
+    if (quoted) {
+      if (character === '"') {
         if (text[i + 1] === '"') {
           field += '"';
           i++;
-        } else inQuotes = false;
-      } else field += ch;
-    } else if (ch === '"' && field.trim() === "") {
-      inQuotes = true;
+        } else {
+          quoted = false;
+        }
+      } else {
+        field += character;
+      }
+    } else if (character === '"' && field.trim() === "") {
+      quoted = true;
       field = "";
-    } else if (ch === delim) endField();
-    else if (ch === "\n") endRow();
-    else if (ch === "\r") continue;
-    else field += ch;
+    } else if (character === delimiter) {
+      endField();
+    } else if (character === "\n") {
+      endRow();
+    } else if (character !== "\r") {
+      field += character;
+    }
   }
-  if (inQuotes) throw new Error("El CSV tiene comillas sin cerrar.");
+
+  if (quoted) throw new Error(L("El CSV tiene un campo entre comillas sin cerrar.", "The CSV contains an unclosed quoted field."));
   if (field !== "" || row.length) endRow();
   return rows;
 }
 
-// ---------- Public API ----------
+function assertColumnIndex(index: number, columnCount: number, name: string): void {
+  if (!Number.isInteger(index) || index < 0 || index >= columnCount) {
+    throw new Error(L(`${name} debe ser un índice de columna válido (desde 0).`, `${name} must be a valid zero-based column index.`));
+  }
+}
 
-export function parseCsv(text: string, label: string, opts: CsvOptions = {}): MonthlySeries {
-  text = text.replace(/^\uFEFF/, ""); // BOM
-  const delim = detectDelimiter(text);
-  const decimalComma = delim !== ","; // con ";" o tab se admite "1,5"
-  const rows = parseRows(text, delim).filter((r) => r.length >= 2);
-  if (!rows.length) throw new Error("The CSV does not contain rows with at least two columns.");
+function findHeader(rows: string[][], firstDataRow: number, columnCount: number): string[] {
+  if (firstDataRow === 0) return [];
+  const candidate = rows[firstDataRow - 1] ?? [];
+  return Array.from({ length: columnCount }, (_, index) => (candidate[index] ?? "").trim());
+}
 
-  const ncol = Math.max(...rows.map((r) => r.length));
+export function parseCsv(text: string, label: string, options: CsvOptions = {}): MonthlySeries {
+  const normalizedText = text.replace(/^\uFEFF/, "");
+  const delimiter = detectDelimiter(normalizedText);
+  const decimalComma = options.decimalComma ?? delimiter !== ",";
+  const rows = parseRows(normalizedText, delimiter).filter((row) => row.length >= 2);
 
-  // 1) Date column: the one with the most parseable cells; ties use the leftmost column.
-  const dateCounts = Array.from(
-    { length: ncol },
-    (_, c) => rows.filter((r) => r[c] !== undefined && parseDate(r[c]) !== null).length,
+  if (!rows.length) throw new Error(L("El CSV no tiene filas con al menos dos columnas.", "The CSV does not contain rows with at least two columns."));
+
+  const columnCount = Math.max(...rows.map((row) => row.length));
+  const parsedDates = rows.map((row) => row.map((cell) => parseDate(cell)));
+  const dateCounts = Array.from({ length: columnCount }, (_, column) =>
+    parsedDates.reduce((count, row) => count + (row[column] ? 1 : 0), 0),
   );
-  const dateCol = opts.dateColumn ?? dateCounts.indexOf(Math.max(...dateCounts));
-  if (!(dateCounts[dateCol] >= 4)) {
+
+  const detectedDateColumn = dateCounts.indexOf(Math.max(...dateCounts));
+  const dateColumn = options.dateColumn ?? detectedDateColumn;
+  assertColumnIndex(dateColumn, columnCount, "dateColumn");
+  if (dateCounts[dateColumn] < 4) {
     throw new Error(
-      "No valid date column was found. Supported formats include YYYY-MM, YYYY-MM-DD, YYYY/MM/DD, YYYYMM, DD/MM/YYYY, and MM/YYYY.",
+      L(
+        "No se encontró una columna de fechas válida. Formatos admitidos: AAAA-MM, AAAA-MM-DD, AAAA/MM/DD, AAAAMM, DD/MM/AAAA y MM/AAAA.",
+        "No valid date column was found. Supported formats include YYYY-MM, YYYY-MM-DD, YYYY/MM/DD, YYYYMM, DD/MM/YYYY, and MM/YYYY.",
+      ),
     );
   }
 
-  const dataRows = rows.filter((r) => r[dateCol] !== undefined && parseDate(r[dateCol]) !== null);
-  const firstIdx = rows.indexOf(dataRows[0]);
-  const header = firstIdx > 0 ? rows[firstIdx - 1].map((h) => h.trim()) : [];
+  const dataRows = rows
+    .map((row, index) => ({ row, index, date: parsedDates[index][dateColumn] }))
+    .filter((entry): entry is { row: string[]; index: number; date: [number, number] } => entry.date !== null);
+  const header = findHeader(rows, dataRows[0].index, columnCount);
 
-  // 2) Value column: select it once for the entire file, not once per row.
-  const numericShare = (c: number) =>
-    dataRows.filter((r) => r[c] !== undefined && parseNumber(r[c], decimalComma) !== null).length /
-    dataRows.length;
+  const numericShare = (column: number) => {
+    const numeric = dataRows.reduce(
+      (count, entry) => count + (entry.row[column] !== undefined && parseNumber(entry.row[column], decimalComma) !== null ? 1 : 0),
+      0,
+    );
+    return numeric / dataRows.length;
+  };
 
-  let valueCol: number;
-  let others: number[] = [];
-  if (typeof opts.valueColumn === "number") {
-    valueCol = opts.valueColumn;
-  } else if (typeof opts.valueColumn === "string") {
-    const needle = opts.valueColumn.toLowerCase();
-    valueCol = header.findIndex((h) => h.toLowerCase().includes(needle));
-    if (valueCol < 0) throw new Error(`No column header contains "${opts.valueColumn}".`);
+  let valueColumn: number;
+  let alternativeColumns: number[] = [];
+  if (typeof options.valueColumn === "number") {
+    valueColumn = options.valueColumn;
+    assertColumnIndex(valueColumn, columnCount, "valueColumn");
+  } else if (typeof options.valueColumn === "string") {
+    const requested = options.valueColumn.trim().toLowerCase();
+    valueColumn = header.findIndex((name) => name.toLowerCase().includes(requested));
+    if (valueColumn < 0) throw new Error(L(`Ningún encabezado contiene "${options.valueColumn}".`, `No column header contains "${options.valueColumn}".`));
   } else {
-    const cands = Array.from({ length: ncol }, (_, c) => c).filter(
-      (c) => c !== dateCol && numericShare(c) >= 0.5,
+    const candidates = Array.from({ length: columnCount }, (_, column) => column).filter(
+      (column) => column !== dateColumn && numericShare(column) >= 0.5,
     );
-    if (!cands.length) throw new Error("No numeric value column was found beside the date column.");
-    valueCol = cands.find((c) => /mean|avg|average|value|valor|media|dato/i.test(header[c] ?? "")) ?? cands[0];
-    others = cands.filter((c) => c !== valueCol);
+    if (!candidates.length) throw new Error(L("No se encontró una columna numérica junto a la de fechas.", "No numeric value column was found beside the date column."));
+    valueColumn = candidates.find((column) => VALUE_HEADER_PATTERN.test(header[column])) ?? candidates[0];
+    alternativeColumns = candidates.filter((column) => column !== valueColumn);
   }
 
-  // 3) Accumulate monthly values and track discarded rows.
-  const acc = new MonthAccumulator();
-  let missing = 0;
-  let invalid = 0;
-  let masked = 0;
-  for (const r of dataRows) {
-    const [y, mo] = parseDate(r[dateCol])!;
-    const raw = (r[valueCol] ?? "").trim();
-    if (MISSING.has(raw.toLowerCase())) {
-      missing++;
+  const monthlyTotals = new Map<number, [sum: number, count: number]>();
+  let missingValues = 0;
+  let invalidValues = 0;
+  let maskedValues = 0;
+
+  for (const entry of dataRows) {
+    const raw = (entry.row[valueColumn] ?? "").trim();
+    if (MISSING_VALUES.has(raw.toLowerCase())) {
+      missingValues++;
       continue;
     }
-    const n = parseNumber(raw, decimalComma);
-    if (n === null) {
-      invalid++;
+
+    const parsed = parseNumber(raw, decimalComma);
+    if (parsed === null) {
+      invalidValues++;
       continue;
     }
-    const v = clean(n); // Sentinel and out-of-range values are handled by series.ts.
-    if (v === null) {
-      masked++;
+
+    const value = clean(parsed);
+    if (value === null) {
+      maskedValues++;
       continue;
     }
-    acc.add(y, mo, v);
+
+    const [year, month] = entry.date;
+    const key = monthKey(year, month);
+    const total = monthlyTotals.get(key) ?? [0, 0];
+    total[0] += value;
+    total[1]++;
+    monthlyTotals.set(key, total);
   }
 
-  if (acc.size < 4) {
+  if (monthlyTotals.size < 4) {
     throw new Error(
-      "The CSV does not contain enough valid date/value rows. It must include a date column and a numeric value column.",
+      L(
+        "El CSV no tiene suficientes filas válidas de fecha y valor. Debe incluir una columna de fecha y otra numérica.",
+        "The CSV does not contain enough valid date/value rows. It must include a date column and a numeric value column.",
+      ),
     );
   }
 
-  const units = text.match(/units?\s*[:=]\s*([^,;\t\r\n"]+)/i)?.[1].trim() ?? "";
-  const map = acc.means();
-  const years = [...map.keys()].map((k) => keyYear(k));
+  const units = normalizedText.match(/units?\s*[:=]\s*([^,;\t\r\n"]+)/i)?.[1].trim() ?? "";
+  const monthlyValues = new Map([...monthlyTotals].map(([key, [sum, count]]) => [key, sum / count]));
+  const years = [...monthlyValues.keys()].map((key) => Math.floor(key / 12));
+  const columnName = (column: number) => header[column] || L(`columna ${column + 1}`, `column ${column + 1}`);
 
-  const colName = (c: number) => header[c] || `columna ${c + 1}`;
   const notes = [
-    `Imported from CSV: ${dataRows.length} dated rows, ${map.size} months with data. ` +
-      `Date: ${colName(dateCol)}; value: ${colName(valueCol)}.`,
+    L(
+      `Importado de CSV: ${dataRows.length} filas con fecha, ${monthlyValues.size} meses con datos. Fecha: ${columnName(dateColumn)}; valor: ${columnName(valueColumn)}.`,
+      `Imported from CSV: ${dataRows.length} dated rows, ${monthlyValues.size} months with data. Date: ${columnName(dateColumn)}; value: ${columnName(valueColumn)}.`,
+    ),
   ];
-  if (missing) notes.push(`${missing} rows with an empty or "NA" value were skipped.`);
-  if (invalid) notes.push(`${invalid} rows with a non-numeric value were skipped.`);
-  if (masked) notes.push(`${masked} rows with a sentinel or out-of-range value were skipped.`);
-  if (others.length) {
+  if (missingValues) notes.push(L(`Se omitieron ${missingValues} filas sin valor.`, `${missingValues} rows with an empty or missing value were skipped.`));
+  if (invalidValues) notes.push(L(`Se omitieron ${invalidValues} filas con valor no numérico.`, `${invalidValues} rows with a non-numeric value were skipped.`));
+  if (maskedValues) notes.push(L(`Se omitieron ${maskedValues} filas con valor centinela o fuera de rango.`, `${maskedValues} rows with a sentinel or out-of-range value were skipped.`));
+  if (alternativeColumns.length) {
     notes.push(
-      `Other numeric columns were detected (${others.map(colName).join(", ")}); "${colName(valueCol)}" was selected. ` +
-        `Use the valueColumn option to select another one.`,
+      L(
+        `Se detectaron otras columnas numéricas (${alternativeColumns.map(columnName).join(", ")}); se usó ${columnName(valueColumn)}.`,
+        `Other numeric columns were detected (${alternativeColumns.map(columnName).join(", ")}); column ${columnName(valueColumn)} was selected. Use the valueColumn option to select another one.`,
+      ),
     );
   }
 
-  return toGrid(map, Math.min(...years), Math.max(...years), {
+  return toGrid(monthlyValues, Math.min(...years), Math.max(...years), {
     units,
     sourceLabel: label,
     urls: [],

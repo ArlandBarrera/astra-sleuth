@@ -2,93 +2,116 @@
   "_comment": "Fuente única de verdad. status: 'verified' = confirmado en documentación oficial; 'check' = plausible pero NO confirmado, validar con una llamada real antes del hackathon.",
   "variables": [
     {
-      "id": "T2M", "block": "A", "name_es": "Temperatura del aire (2 m)",
+      "id": "T2M", "block": "A", "name_es": "Temperatura del aire (2 m)", "name_en": "Air temperature (2 m)",
       "definition_es": "Temperatura del aire a 2 metros sobre el suelo, promedio mensual.",
+      "definition_en": "Air temperature 2 meters above the ground, monthly mean.",
       "source": "power", "api_code": "T2M", "units_hint": "°C", "start": "1981-01",
       "pairs_with": ["SNODP", "EVPTRNS"], "status": "verified", "quality_notes": []
     },
     {
-      "id": "ALLSKY_SFC_SW_DWN", "block": "A", "name_es": "Radiación solar en superficie",
+      "id": "ALLSKY_SFC_SW_DWN", "block": "A", "name_es": "Radiación solar en superficie", "name_en": "Surface solar radiation",
       "definition_es": "Energía solar que llega al suelo en todas las condiciones de cielo (con nubes).",
+      "definition_en": "Solar energy reaching the ground under all sky conditions (including clouds).",
       "source": "power", "api_code": "ALLSKY_SFC_SW_DWN",
       "units_hint": "depende de la comunidad (AG: MJ/m²/día; RE/SB: kWh/m²/día). Leer units de la respuesta.",
       "start": "1984-01", "pairs_with": ["AOD", "CLOUD_AMT"], "status": "verified", "quality_notes": []
     },
     {
-      "id": "CLOUD_AMT", "block": "A", "name_es": "Fracción de nubosidad",
+      "id": "CLOUD_AMT", "block": "A", "name_es": "Fracción de nubosidad", "name_en": "Cloud fraction",
       "definition_es": "Porcentaje del cielo cubierto por nubes.",
+      "definition_en": "Percentage of the sky covered by clouds.",
       "source": "power", "api_code": "CLOUD_AMT", "units_hint": "% (0–100), NO 0–1",
       "start": "1984-01", "pairs_with": ["PRECTOTCORR"], "status": "verified", "quality_notes": []
     },
     {
-      "id": "AOD", "block": "A", "name_es": "Profundidad óptica de aerosoles (humo/polvo)",
+      "id": "AOD", "block": "A", "name_es": "Profundidad óptica de aerosoles (humo/polvo)", "name_en": "Aerosol optical depth (smoke/dust)",
       "definition_es": "Qué tan opaca está la atmósfera por partículas (humo, polvo, sal). 0 = limpia; >1 = muy turbia.",
+      "definition_en": "How hazy the atmosphere is from particles (smoke, dust, salt). 0 = clean; >1 = very hazy.",
       "source": "giovanni", "api_code": "MYD08_M3 · AOD_550_Dark_Target_Deep_Blue_Combined_Mean_Mean",
       "units_hint": "adimensional", "start": "2002-07",
       "pairs_with": ["ALLSKY_SFC_SW_DWN"], "status": "check",
       "fetch_note": "'MYD08_M3_AOD' NO es un código real. La banda del producto MYD08_M3 es AOD_550_Dark_Target_Deep_Blue_Combined (sufijo _Mean_Mean = media mensual de medias diarias). El identificador exacto en Giovanni hay que copiarlo de su selector. Giovanni no tiene API REST limpia: usar su 'Time Series, Area-Averaged' manualmente para el preset, o descargar MYD08_M3 desde LAADS.",
+      "fetch_note_en": "'MYD08_M3_AOD' is NOT a real code. The MYD08_M3 band is AOD_550_Dark_Target_Deep_Blue_Combined (suffix _Mean_Mean = monthly mean of daily means). The exact Giovanni identifier must be copied from its selector. Giovanni has no clean REST API: use its 'Time Series, Area-Averaged' manually for the preset, or download MYD08_M3 from LAADS.",
       "fallback": {
-        "source": "power", "api_code": "AOD_55", "label_es": "MERRA-2 (reanálisis) vía NASA POWER",
+        "source": "power", "api_code": "AOD_55", "label_es": "MERRA-2 (reanálisis) vía NASA POWER", "label_en": "MERRA-2 (reanalysis) via NASA POWER",
         "units_hint": "adimensional", "start": "2001-01", "status": "verified",
-        "note_es": "Verificado 2026-11-14: la API mensual de POWER entrega AOD_55 (550 nm, MERRA-2) desde 2001-01. Es un reanálisis que asimila MODIS, no la medición directa de MODIS-Aqua: úsalo para el caso en 1 clic y carga el CSV de Giovanni para la versión MODIS."
+        "note_es": "Verificado 2026-11-14: la API mensual de POWER entrega AOD_55 (550 nm, MERRA-2) desde 2001-01. Es un reanálisis que asimila MODIS, no la medición directa de MODIS-Aqua: úsalo para el caso en 1 clic y carga el CSV de Giovanni para la versión MODIS.",
+        "note_en": "Verified 2026-11-14: the POWER monthly API serves AOD_55 (550 nm, MERRA-2) from 2001-01. It is a reanalysis that assimilates MODIS, not MODIS-Aqua's direct measurement: use it for the 1-click case and load the Giovanni CSV for the MODIS version."
       },
       "quality_notes": [
-        {"after": "2021-07", "severity": "warning", "text_es": "Aqua está en 'free-drift' desde dic-2021: su hora local de paso se está retrasando, lo que puede sesgar series largas."}
+        {"after": "2021-07", "severity": "warning", "text_es": "Aqua está en 'free-drift' desde dic-2021: su hora local de paso se está retrasando, lo que puede sesgar series largas.",
+         "text_en": "Aqua has been in free drift since Dec 2021: its local overpass time keeps slipping, which can bias long series."}
       ]
     },
     {
-      "id": "PRECTOTCORR", "block": "B", "name_es": "Precipitación total corregida",
+      "id": "PRECTOTCORR", "block": "B", "name_es": "Precipitación total corregida", "name_en": "Bias-corrected total precipitation",
       "definition_es": "Lluvia + nieve equivalente en agua, corregida con mediciones de pluviómetros.",
+      "definition_en": "Rain + snow water equivalent, corrected with rain-gauge measurements.",
       "source": "power", "api_code": "PRECTOTCORR", "units_hint": "mm/día",
       "start": "1981-01", "pairs_with": ["GWETPROF"], "status": "verified", "quality_notes": []
     },
     {
-      "id": "GWETPROF", "block": "B", "name_es": "Humedad del suelo (perfil)",
+      "id": "GWETPROF", "block": "B", "name_es": "Humedad del suelo (perfil)", "name_en": "Soil moisture (profile)",
       "definition_es": "Qué tan saturado de agua está el perfil del suelo: 0 = seco, 1 = saturado.",
+      "definition_en": "How saturated the soil profile is: 0 = dry, 1 = saturated.",
       "source": "power", "api_code": "GWETPROF", "units_hint": "fracción 0–1",
       "start": "1981-01", "pairs_with": ["PRECTOTCORR"], "status": "verified",
       "fetch_note": "Confirmado como fracción 0–1 en la API diaria; confirmar que también viene en la mensual.",
+      "fetch_note_en": "Confirmed as a 0–1 fraction in the daily API; check that the monthly API matches.",
       "quality_notes": []
     },
         {
-      "id": "WS2M", "block": "C", "name_es": "Velocidad del viento (2 m)",
+      "id": "WS2M", "block": "C", "name_es": "Velocidad del viento (2 m)", "name_en": "Wind speed (2 m)",
       "definition_es": "Rapidez del viento a 2 m de altura.",
+      "definition_en": "Wind speed 2 m above the ground.",
       "source": "power", "api_code": "WS2M", "units_hint": "m/s",
       "start": "1981-01", "pairs_with": ["CHLOR_A", "AOD"], "status": "verified", "quality_notes": []
     },
     {
-      "id": "SST", "block": "C", "name_es": "Temperatura superficial del mar (SST)",
+      "id": "SST", "block": "C", "name_es": "Temperatura superficial del mar (SST)", "name_en": "Sea surface temperature (SST)",
       "definition_es": "Temperatura de la capa superior del océano.",
-      "source": "erddap", "erddap_host": "https://coastwatch.pfeg.noaa.gov/erddap",
-      "dataset_id": "jplMURSST41mday", "api_code": "sst",
-      "units_hint": "°C", "start": "2002-06", "pairs_with": ["CHLOR_A"], "status": "verified",
-      "fetch_note": "CORRECCIÓN: en el dataset mensual la variable es 'sst'. 'analysed_sst' pertenece al dataset diario jplMURSST41. Resolución 0.01°: usar stride para regiones grandes.",
+      "definition_en": "Temperature of the ocean's top layer.",
+      "source": "erddap", "erddap_host": "https://oceanwatch.pifsc.noaa.gov/erddap",
+      "dataset_id": "CRW_sst_v3_1_monthly", "api_code": "sea_surface_temperature",
+      "label": "NOAA Coral Reef Watch CoralTemp v3.1 (0.05°)",
+      "mirrors": [
+        {"erddap_host": "https://coastwatch.pfeg.noaa.gov/erddap", "dataset_id": "jplMURSST41mday", "api_code": "sst",
+         "label": "NASA JPL MUR SST v4.1 (0.01°)", "start": "2002-06"}
+      ],
+      "units_hint": "°C", "start": "1985-01", "pairs_with": ["CHLOR_A"], "status": "verified",
+      "fetch_note": "Verificado 2026-11-14: CoralTemp v3.1 mensual (OceanWatch PIFSC), 1985–presente, global a 0.05°, longitud 0–360 y latitud de norte a sur (el código lo detecta). El servidor anterior (coastwatch.pfeg, MUR) no respondía; queda como respaldo. Se descarga en tramos de 5 años porque las consultas largas se cortan con 502.",
+      "fetch_note_en": "Verified 2026-11-14: CoralTemp v3.1 monthly (OceanWatch PIFSC), 1985–present, global at 0.05°, longitude 0–360 and north-to-south latitude (detected automatically). The former server (coastwatch.pfeg, MUR) was not responding; it remains as a fallback. Downloaded in 5-year chunks because long queries are cut with 502.",
       "quality_notes": []
     },
     {
-      "id": "CHLOR_A", "block": "C", "name_es": "Clorofila-a oceánica (productividad)",
+      "id": "CHLOR_A", "block": "C", "name_es": "Clorofila-a oceánica (productividad)", "name_en": "Ocean chlorophyll-a (productivity)",
       "definition_es": "Concentración de clorofila en el agua: indicador de fitoplancton, base de la cadena alimentaria marina.",
+      "definition_en": "Chlorophyll concentration in the water: a proxy for phytoplankton, the base of the marine food web.",
       "source": "erddap",
       "sensors": {
         "viirs": {
-          "label": "VIIRS S-NPP (recomendado)",
+          "label": "VIIRS S-NPP (recomendado)", "label_en": "VIIRS S-NPP (recommended)",
           "erddap_host": "https://polarwatch.noaa.gov/erddap",
-          "dataset_id": "nesdisVHNSQchlaMonthly", "api_code": "chlor_a",
-          "start": "2012-01", "var_status": "check",
-          "note": "Nombre de variable 'chlor_a' inferido de las keywords del dataset; el código lo descubre en tiempo de ejecución desde /info/<id>/index.json."
+          "dataset_id": "noaacwNPPVIIRSSQchlaMonthly", "api_code": "chlor_a",
+          "mirrors": [{"erddap_host": "https://coastwatch.noaa.gov/erddap", "dataset_id": "noaacwNPPVIIRSSQchlaMonthly", "api_code": "chlor_a"}],
+          "start": "2012-01", "var_status": "verified",
+          "note": "Verificado 2026-11-14: el dataset anterior (nesdisVHNSQchlaMonthly) ya no existe (404). Se usa noaacwNPPVIIRSSQchlaMonthly (Science Quality, 0.0375°, 2012–presente) en PolarWatch, con CoastWatch como espejo.",
+          "note_en": "Verified 2026-11-14: the former dataset (nesdisVHNSQchlaMonthly) no longer exists (404). Using noaacwNPPVIIRSSQchlaMonthly (Science Quality, 0.0375°, 2012–present) on PolarWatch, with CoastWatch as a mirror."
         },
         "modis": {
-          "label": "MODIS-Aqua (histórico)",
+          "label": "MODIS-Aqua (histórico)", "label_en": "MODIS-Aqua (historical)",
           "erddap_host": "https://coastwatch.pfeg.noaa.gov/erddap",
           "dataset_id": "erdMH1chlamday", "api_code": "chlorophyll",
           "start": "2003-01", "end": "2022-05", "var_status": "verified",
-          "note": "CORRECCIÓN: la variable es 'chlorophyll' (mg m-3), no 'chlor_a'. En este servidor la serie termina en mayo-2022."
+          "note": "La variable es 'chlorophyll' (mg m-3). Solo existe en coastwatch.pfeg.noaa.gov, que el 2026-11-14 no respondía: si falla, usa VIIRS. La serie termina en mayo-2022.",
+          "note_en": "The variable is 'chlorophyll' (mg m-3). It only exists on coastwatch.pfeg.noaa.gov, which was not responding on 2026-11-14: if it fails, use VIIRS. The series ends in May 2022."
         }
       },
-      "units_hint": "mg/m³", "pairs_with": ["SST"], "status": "check",
+      "units_hint": "mg/m³", "pairs_with": ["SST"], "status": "verified",
       "quality_notes": [
         {"after": "2021-07", "sensors": ["modis"], "severity": "critical",
-         "text_es": "Nota de calidad de sensor: NASA OBPG detectó una caída en la exactitud de MODIS-Aqua color del océano desde 2023 y la rastreó hasta julio de 2021, porque Aqua se aleja de su hora de paso nominal (13:30) y eso afecta la calibración. Las tendencias que crucen esta fecha pueden ser artefacto del instrumento. VIIRS no tiene este problema."}
+         "text_es": "Nota de calidad de sensor: NASA OBPG detectó una caída en la exactitud de MODIS-Aqua color del océano desde 2023 y la rastreó hasta julio de 2021, porque Aqua se aleja de su hora de paso nominal (13:30) y eso afecta la calibración. Las tendencias que crucen esta fecha pueden ser artefacto del instrumento. VIIRS no tiene este problema.",
+         "text_en": "Sensor quality note: NASA OBPG found a drop in MODIS-Aqua ocean-color accuracy since 2023 and traced it back to July 2021, because Aqua is drifting away from its nominal 13:30 overpass time, which affects calibration. Trends crossing this date may be an instrument artifact. VIIRS does not have this problem."}
       ]
     }
   ]

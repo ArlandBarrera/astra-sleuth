@@ -10,6 +10,7 @@ import "@watergis/maplibre-gl-terradraw/dist/maplibre-gl-terradraw.css";
 import type { Feature } from "geojson";
 import { GIBS_CONTEXT } from "../catalog";
 import { clampLat, normalizeBbox, normLon, type Region } from "../geo";
+import { L } from "../i18n";
 import type { Slot } from "../state";
 
 setWorkerUrl(maplibreWorkerUrl);
@@ -30,12 +31,19 @@ export interface MapApi {
   flyTo(r: Region): void;
   fitBoth(a: Region, b: Region): void;
   resize(): void;
+  /** Vuelve a poner los textos de la barra de dibujo en el idioma activo. */
+  relabel(): void;
 }
+
+/** Herramienta de dibujo activa: null = ninguna (clic simple elige un punto). */
+export type DrawTool = "point" | "rectangle" | null;
 
 export interface MapEvents {
   /** El usuario dibujó/eligió una región (ya normalizada). */
   onPick(kind: "point" | "bbox", lat: number, lon: number, bbox?: [number, number, number, number]): void;
   onError(msg: string): void;
+  /** El usuario activó o desactivó una herramienta de la barra de dibujo. */
+  onTool(tool: DrawTool): void;
 }
 
 function style(): StyleSpecification {
@@ -104,7 +112,7 @@ function markerEl(slot: Slot, active: boolean): HTMLElement {
   el.className = `region-marker${active ? " is-active" : ""}`;
   el.style.setProperty("--c", COLORS[slot]);
   el.textContent = slot;
-  el.setAttribute("aria-label", `Región ${slot}`);
+  el.setAttribute("aria-label", `${L("Región", "Region")} ${slot}`);
   return el;
 }
 
@@ -128,6 +136,31 @@ export function createMap(container: HTMLElement, ev: MapEvents): MapApi {
     showDeleteConfirmation: false,
   });
   map.addControl(draw, "top-right");
+
+  // Textos de la barra de dibujo (la librería los trae en inglés y sin explicar).
+  const relabel = () => {
+    const set = (cls: string, text: string) => {
+      const b = container.querySelector<HTMLButtonElement>(`.${cls}`);
+      if (!b) return;
+      b.title = text;
+      b.setAttribute("aria-label", text);
+    };
+    set("maplibregl-terradraw-add-point-button", L("Punto: haz clic en el globo para elegir un lugar", "Point: click on the globe to pick a place"));
+    set("maplibregl-terradraw-add-rectangle-button", L("Rectángulo: clic en una esquina y clic en la esquina opuesta", "Rectangle: click one corner, then the opposite corner"));
+    set("maplibregl-terradraw-render-button", L("Mostrar u ocultar las herramientas de dibujo", "Show or hide the drawing tools"));
+  };
+  relabel();
+
+  // Aviso al usuario cuando cambia la herramienta activa.
+  let tool: DrawTool = null;
+  draw.on("mode-changed", (e) => {
+    const m = e.mode as string;
+    const next: DrawTool = m === "point" ? "point" : m === "rectangle" ? "rectangle" : null;
+    if (next === tool) return;
+    tool = next;
+    container.classList.toggle("is-drawing", !!tool);
+    ev.onTool(tool);
+  });
 
   // Una tesela de GIBS que falla (500, timeout) no debe ensuciar la consola ni romper nada.
   map.on("error", (e) => {
@@ -263,6 +296,8 @@ export function createMap(container: HTMLElement, ev: MapEvents): MapApi {
     resize() {
       map.resize();
     },
+
+    relabel,
   };
   return api;
 }

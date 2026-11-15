@@ -1,4 +1,5 @@
 // Cliente del Web Worker estadístico (promesas sobre postMessage).
+import { L } from "../i18n";
 import type { AnalyzeOut, AnalyzeRequest, CoupleOut, CoupleRequest } from "./types";
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -12,10 +13,10 @@ worker.onmessage = (e: MessageEvent<{ id: number; ok: boolean; result?: unknown;
   if (!p) return;
   pending.delete(e.data.id);
   if (e.data.ok) p.resolve(e.data.result);
-  else p.reject(new Error(e.data.error ?? "Error del motor estadístico"));
+  else p.reject(new Error(e.data.error ?? L("Error del motor estadístico", "Statistics engine error")));
 };
 worker.onerror = (e) => {
-  const err = new Error(`El motor estadístico (WASM) no pudo cargarse: ${e.message || "error desconocido"}`);
+  const err = new Error(L(`El motor estadístico no pudo cargarse: ${e.message || "error desconocido"}`, `The statistics engine failed to load: ${e.message || "unknown error"}`));
   for (const p of pending.values()) p.reject(err);
   pending.clear();
 };

@@ -1,7 +1,8 @@
 // Formateo y lenguaje claro: convierte el JSON del motor en frases que entiende un
 // estudiante de secundaria, sin perder los números que necesita un científico.
-import { SHORT, getVar, seasonText, type Season } from "./catalog";
+import { short, seasonText, type Season } from "./catalog";
 import type { AnalyzeOut } from "./engine/types";
+import { L, dec, lang, locale } from "./i18n";
 
 export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -25,7 +26,8 @@ const UNIT_MAP: Record<string, string> = {
 
 export function prettyUnits(u: string): string {
   const k = (u ?? "").trim();
-  return k in UNIT_MAP ? UNIT_MAP[k] : k;
+  const out = k in UNIT_MAP ? UNIT_MAP[k] : k;
+  return lang() === "en" ? out.replace("/día", "/day") : out;
 }
 
 /** Número con decimales adaptados a su magnitud. */
@@ -34,7 +36,7 @@ export function fmt(x: number | null | undefined, sig = 3): string {
   if (x === 0) return "0";
   const a = Math.abs(x);
   const d = a >= 100 ? 0 : a >= 10 ? 1 : Math.min(6, Math.max(0, sig - 1 - Math.floor(Math.log10(a))));
-  return x.toLocaleString("es", { minimumFractionDigits: 0, maximumFractionDigits: d });
+  return x.toLocaleString(locale(), { minimumFractionDigits: 0, maximumFractionDigits: d });
 }
 
 export function fmtSigned(x: number, sig = 3): string {
@@ -45,32 +47,34 @@ export function fmtSigned(x: number, sig = 3): string {
 /** p-valor legible: "< 0,001" o con tres decimales. */
 export function fmtP(p: number): string {
   if (!Number.isFinite(p)) return "—";
-  if (p < 0.001) return "< 0,001";
-  return p.toLocaleString("es", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  if (p < 0.001) return `< ${dec("0.001")}`;
+  return p.toLocaleString(locale(), { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 }
 
 /** "p < 0,001" o "p = 0,023": listo para insertar en una frase. */
 export function pEq(p: number): string {
-  return p < 0.001 ? "p < 0,001" : `p = ${fmtP(p)}`;
+  return p < 0.001 ? `p < ${dec("0.001")}` : `p = ${fmtP(p)}`;
 }
 
 /** p-valor en notación científica (modo científico). */
 export function fmtPSci(p: number): string {
   if (!Number.isFinite(p)) return "—";
   if (p === 0) return "< 1×10⁻³⁰⁰";
-  if (p >= 0.001) return p.toFixed(4).replace(".", ",");
+  if (p >= 0.001) return dec(p.toFixed(4));
   const e = Math.floor(Math.log10(p));
   const m = p / 10 ** e;
   const sup = String(e).replace(/[-0-9]/g, (c) => "⁻⁰¹²³⁴⁵⁶⁷⁸⁹"["-0123456789".indexOf(c)]);
-  return `${m.toFixed(2).replace(".", ",")}×10${sup}`;
+  return `${dec(m.toFixed(2))}×10${sup}`;
 }
 
-const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-export const monthName = (m: number) => MONTHS[m - 1];
+const MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const monthName = (m: number) => (lang() === "en" ? MONTHS_EN : MONTHS_ES)[m - 1];
 export const ym = (y: number, m: number) => `${monthName(m)} ${y}`;
 
 /** Minúsculas para usar dentro de una frase, conservando siglas (AOD, SST). */
 export function lowerName(s: string): string {
+  if (lang() === "en") return s.charAt(0).toLowerCase() + s.slice(1);
   return s
     .split(" ")
     .map((w) => (/^\(?[A-Z0-9-]{2,}\)?$/.test(w) ? w : w.toLowerCase()))
@@ -101,42 +105,70 @@ export function verdict(
   const sig = hr ? mk.significantHr : mk.significant;
   const ci = hr ? mk.ciHrDecade : mk.ciDecade;
   const u = prettyUnits(units);
-  const name = SHORT[variableId] ?? getVar(variableId).name_es;
-  const verb = mk.slopeDecade > 0 ? "sube" : mk.slopeDecade < 0 ? "baja" : "no cambia";
-  const amount = `${fmt(Math.abs(mk.slopeDecade))}${u ? " " + u : ""} por década`;
-  const period = `${Math.round(stats.spanYears)} años, ${seasonText(season, lat)}`;
+  const name = lowerName(short(variableId));
+  const up = mk.slopeDecade > 0;
+  const flat = mk.slopeDecade === 0;
+  const verb = flat ? L("no cambia", "does not change") : up ? L("sube", "rises") : L("baja", "falls");
+  const amount = `${fmt(Math.abs(mk.slopeDecade))}${u ? " " + u : ""} ${L("por década", "per decade")}`;
+  const period = `${Math.round(stats.spanYears)} ${L("años", "years")}, ${seasonText(season, lat)}`;
+  const pct = Math.round(stats.completeness * 100);
 
   const headline = sig
-    ? `Sí hay tendencia: ${lowerName(name)} ${verb} ${amount}`
-    : `Aún no se puede afirmar una tendencia en ${lowerName(name)}`;
+    ? L(`Sí hay tendencia: ${name} ${verb} ${amount}`, `There is a trend: ${name} ${verb} ${amount}`)
+    : L(`Aún no se puede afirmar una tendencia en ${name}`, `A trend in ${name} cannot be claimed yet`);
 
-  const line1 = `En ${place}, ${lowerName(name)} ${verb === "no cambia" ? "no muestra cambio neto" : `${verb} unos ${amount}`} (${period}).`;
+  const line1 = flat
+    ? L(`En ${place}, ${name} no muestra cambio neto (${period}).`, `In ${place}, ${name} shows no net change (${period}).`)
+    : L(`En ${place}, ${name} ${verb} unos ${amount} (${period}).`, `In ${place}, ${name} ${verb} about ${amount} (${period}).`);
   let line2: string;
   if (sig) {
-    line2 = `Es muy poco probable que sea casualidad: ${pEq(p)}, menor que 0,05. La tendencia es estadísticamente significativa.`;
+    line2 = L(
+      `Es muy poco probable que sea casualidad: ${pEq(p)}, menor que 0,05. La tendencia es estadísticamente significativa.`,
+      `It is very unlikely to be chance: ${pEq(p)}, below 0.05. The trend is statistically significant.`,
+    );
   } else {
     const rem = stats.horizon.yearsRemaining;
-    const more = rem !== null && rem > 0 && Number.isFinite(rem) ? ` Con el ritmo y el ruido actuales harían falta unos ${Math.ceil(rem)} años más de datos.` : "";
-    line2 = `El cambio todavía se confunde con la variación natural: ${pEq(p)}, mayor o igual que 0,05.${more}`;
+    const ok = rem !== null && rem > 0 && Number.isFinite(rem);
+    const more = ok
+      ? L(` Con el ritmo y el ruido actuales harían falta unos ${Math.ceil(rem!)} años más de datos.`, ` At the current rate and noise, about ${Math.ceil(rem!)} more years of data would be needed.`)
+      : "";
+    line2 = L(
+      `El cambio todavía se confunde con la variación natural: ${pEq(p)}, mayor o igual que 0,05.${more}`,
+      `The change still blends in with natural variability: ${pEq(p)}, 0.05 or higher.${more}`,
+    );
   }
   let line3: string;
   const pt = stats.pettitt;
   if (pt && pt.significant) {
-    const dir = pt.meanAfter > pt.meanBefore ? "subió" : "bajó";
-    line3 = `Hubo un salto brusco cerca de ${ym(pt.year, pt.month)}: el nivel medio ${dir} ${fmt(Math.abs(pt.meanAfter - pt.meanBefore))}${u ? " " + u : ""} (prueba de Pettitt).`;
+    const rose = pt.meanAfter > pt.meanBefore;
+    const jump = `${fmt(Math.abs(pt.meanAfter - pt.meanBefore))}${u ? " " + u : ""}`;
+    line3 = L(
+      `Hubo un salto brusco cerca de ${ym(pt.year, pt.month)}: el nivel medio ${rose ? "subió" : "bajó"} ${jump} (prueba de Pettitt).`,
+      `There was an abrupt shift around ${ym(pt.year, pt.month)}: the mean level ${rose ? "rose" : "fell"} by ${jump} (Pettitt test).`,
+    );
   } else if (stats.completeness < 0.8) {
-    line3 = `Cuidado: solo el ${Math.round(stats.completeness * 100)} % de los meses tiene datos, lo que reduce la confianza.`;
+    line3 = L(`Cuidado: solo el ${pct} % de los meses tiene datos, lo que reduce la confianza.`, `Caution: only ${pct}% of months have data, which lowers confidence.`);
   } else {
-    line3 = `No se detecta un salto brusco: el cambio, si existe, es gradual. Datos completos al ${Math.round(stats.completeness * 100)} %.`;
+    line3 = L(
+      `No se detecta un salto brusco: el cambio, si existe, es gradual. Datos completos al ${pct} %.`,
+      `No abrupt shift detected: the change, if any, is gradual. Data ${pct}% complete.`,
+    );
   }
   return { significant: sig, headline, lines: [line1, line2, line3], p, slope: mk.slopeDecade, ci };
 }
 
 export function corrSentence(rho: number, p: number, aName: string, bName: string): string {
-  const strength = Math.abs(rho) >= 0.6 ? "fuerte" : Math.abs(rho) >= 0.3 ? "moderada" : "débil";
-  const sig = p < 0.05;
-  if (!sig) return `No hay relación clara entre ${aName} y ${bName} (ρ = ${fmtSigned(rho, 2)}, ${pEq(p)}).`;
+  const a = Math.abs(rho);
+  const strength = a >= 0.6 ? L("fuerte", "strong") : a >= 0.3 ? L("moderada", "moderate") : L("débil", "weak");
+  const tail = `(ρ = ${fmtSigned(rho, 2)}, ${pEq(p)})`;
+  if (p >= 0.05) return L(`No hay relación clara entre ${aName} y ${bName} ${tail}.`, `There is no clear relationship between ${aName} and ${bName} ${tail}.`);
   return rho > 0
-    ? `Relación ${strength} y significativa: cuando ${aName} está por encima de lo normal, ${bName} también tiende a estarlo (ρ = ${fmtSigned(rho, 2)}, ${pEq(p)}).`
-    : `Relación ${strength} y opuesta: cuando ${aName} está por encima de lo normal, ${bName} tiende a estar por debajo (ρ = ${fmtSigned(rho, 2)}, ${pEq(p)}).`;
+    ? L(
+        `Relación ${strength} y significativa: cuando ${aName} está por encima de lo normal, ${bName} también tiende a estarlo ${tail}.`,
+        `A ${strength}, significant relationship: when ${aName} is above normal, ${bName} tends to be too ${tail}.`,
+      )
+    : L(
+        `Relación ${strength} y opuesta: cuando ${aName} está por encima de lo normal, ${bName} tiende a estar por debajo ${tail}.`,
+        `A ${strength}, opposite relationship: when ${aName} is above normal, ${bName} tends to be below ${tail}.`,
+      );
 }

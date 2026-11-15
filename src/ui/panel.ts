@@ -1,37 +1,46 @@
 // Panel de investigación: casos de ejemplo + pasos 1 (variable), 2 (región) y 3 (periodo).
 import {
-  BLOCKS,
+  BLOCK_IDS,
   LEVEL,
-  SEASONS,
   VARIABLES,
   applicable,
+  blocks,
   endYearOf,
   getVar,
+  levelLabel,
   pairsOf,
   seasonText,
+  seasons,
+  sourceIds,
   sourceLabel,
   startYearOf,
-  type Block,
+  tx,
+  varDef,
+  varName,
 } from "../catalog";
 import { needsCsv } from "../data/fetch";
-import { SURFACE_LABEL, describeRegion } from "../geo";
+import { describeRegion, regionName, surfaceLabel } from "../geo";
 import { hypothesis } from "../hints";
+import { L } from "../i18n";
 import { PRESETS } from "../presets";
 import { CURRENT_YEAR, type Slot, type State } from "../state";
 import { esc } from "../text";
 import { COLORS } from "./map";
 
-const UNIT_HINT: Record<string, string> = {
-  T2M: "°C",
-  ALLSKY_SFC_SW_DWN: "MJ/m²/día",
-  CLOUD_AMT: "%",
-  AOD: "sin unidad",
-  PRECTOTCORR: "mm/día",
-  GWETPROF: "0 a 1",
-  WS2M: "m/s",
-  SST: "°C",
-  CHLOR_A: "mg/m³",
-};
+function unitHint(id: string): string {
+  const u: Record<string, string> = {
+    T2M: "°C",
+    ALLSKY_SFC_SW_DWN: L("MJ/m²/día", "MJ/m²/day"),
+    CLOUD_AMT: "%",
+    AOD: L("sin unidad", "unitless"),
+    PRECTOTCORR: L("mm/día", "mm/day"),
+    GWETPROF: L("0 a 1", "0 to 1"),
+    WS2M: "m/s",
+    SST: "°C",
+    CHLOR_A: "mg/m³",
+  };
+  return u[id] ?? "";
+}
 
 function segmented(name: string, value: string, items: { v: string; label: string; title?: string }[], action: string): string {
   return `<div class="seg" role="radiogroup" aria-label="${esc(name)}">${items
@@ -51,12 +60,12 @@ function activeSurface(s: State) {
 function presetsHtml(): string {
   return `
   <section class="block" aria-labelledby="presets-h">
-    <h2 class="eyebrow" id="presets-h">Casos de ejemplo en 1 clic</h2>
+    <h2 class="eyebrow" id="presets-h">${L("Casos de ejemplo en 1 clic", "1-click example cases")}</h2>
     <div class="preset-grid">
       ${PRESETS.map(
         (p) => `<button type="button" class="preset" data-action="preset" data-v="${p.id}" data-k="preset-${p.id}">
-          <span class="preset-title">${esc(p.title)}</span>
-          <span class="preset-sub">${esc(p.subtitle)}</span>
+          <span class="preset-title">${esc(L(p.title, p.title_en))}</span>
+          <span class="preset-sub">${esc(L(p.subtitle, p.subtitle_en))}</span>
         </button>`,
       ).join("")}
     </div>
@@ -69,25 +78,27 @@ function stepHead(n: number, title: string, sub: string): string {
 
 function variableHtml(s: State): string {
   const surface = activeSurface(s);
-  const groups = (Object.keys(BLOCKS) as Block[])
+  const sci = s.level === "scientist";
+  const BLOCKS = blocks();
+  const groups = BLOCK_IDS
     .map((b) => {
       const rows = VARIABLES.filter((v) => v.block === b)
         .map((v) => {
           const ok = applicable(v.id, surface);
           const on = v.id === s.variableId;
           const y = startYearOf(v, s);
-          const why = !ok ? (surface === "land" ? "Solo sobre el océano" : "Solo sobre tierra") : "";
+          const why = !ok ? (surface === "land" ? L("Solo sobre el océano", "Ocean only") : L("Solo sobre tierra", "Land only")) : "";
           return `<label class="var-row${on ? " is-on" : ""}${ok ? "" : " is-off"}" data-k="var-${v.id}">
             <input type="radio" name="variable" value="${v.id}" ${on ? "checked" : ""} ${ok ? "" : "disabled"} data-action="variable">
             <span class="var-main">
-              <span class="var-name">${esc(v.name_es)}</span>
-              <span class="var-def">${esc(v.definition_es)}</span>
+              <span class="var-name">${esc(varName(v))}</span>
+              ${sci ? `<span class="var-code mono small">${esc(v.id === "CHLOR_A" && v.sensors ? v.sensors[s.chlSensor].api_code : v.id === "AOD" && s.aodSource === "power" && v.fallback ? v.fallback.api_code : (v.api_code ?? v.id))}</span>` : `<span class="var-def">${esc(varDef(v))}</span>`}
               ${why ? `<span class="var-why">${why}</span>` : ""}
             </span>
             <span class="var-meta">
-              <span class="tag tag-${LEVEL[v.id] === "Básica" ? "basic" : LEVEL[v.id] === "Intermedia" ? "mid" : "spec"}">${LEVEL[v.id] ?? ""}</span>
-              <span class="mono small">${esc(UNIT_HINT[v.id] ?? v.units_hint)}</span>
-              <span class="mono small muted">desde ${y}</span>
+              ${sci ? "" : `<span class="tag tag-${LEVEL[v.id] === "Básica" ? "basic" : LEVEL[v.id] === "Intermedia" ? "mid" : "spec"}">${LEVEL[v.id] ? levelLabel(LEVEL[v.id]) : ""}</span>`}
+              <span class="mono small">${esc(unitHint(v.id) || v.units_hint)}</span>
+              <span class="mono small muted">${L("desde", "from")} ${y}</span>
             </span>
           </label>`;
         })
@@ -102,16 +113,16 @@ function variableHtml(s: State): string {
     extra.push(`<div class="field"><span class="field-label">Sensor</span>${segmented(
       "Sensor",
       s.chlSensor,
-      Object.entries(v.sensors).map(([k, x]) => ({ v: k, label: x.label })),
+      Object.entries(v.sensors).map(([k, x]) => ({ v: k, label: tx(x.label, x.label_en) })),
       "sensor",
     )}</div>`);
   }
   if (v.id === "AOD") {
-    extra.push(`<div class="field"><span class="field-label">Fuente de datos</span>${segmented(
-      "Fuente de AOD",
+    extra.push(`<div class="field"><span class="field-label">${L("Fuente de datos", "Data source")}</span>${segmented(
+      L("Fuente de AOD", "AOD source"),
       s.aodSource,
       [
-        { v: "power", label: "MERRA-2 (automático)", title: v.fallback?.note_es },
+        { v: "power", label: L("MERRA-2 (automático)", "MERRA-2 (automatic)"), title: v.fallback ? tx(v.fallback.note_es, v.fallback.note_en) : undefined },
         { v: "csv", label: "MODIS Giovanni (CSV)" },
       ],
       "aod",
@@ -119,9 +130,16 @@ function variableHtml(s: State): string {
   }
   const status =
     v.status === "check" && !(v.id === "AOD" && s.aodSource === "power")
-      ? `<p class="note note-warn"><strong>Por confirmar.</strong> Esta variable no se ha verificado con una llamada real a su API mensual; puede fallar.</p>`
+      ? `<p class="note note-warn"><strong>${L("Por confirmar.", "Unverified.")}</strong> ${L(
+          "Esta variable no se ha verificado con una llamada real a su API mensual; puede fallar.",
+          "This variable has not been verified with a real call to its monthly API; it may fail.",
+        )}</p>`
       : "";
-  const fetchNote = v.fetch_note || (v.id === "CHLOR_A" && v.sensors?.[s.chlSensor]?.note) || (v.id === "AOD" && s.aodSource === "power" ? v.fallback?.note_es : "");
+  const sensor = v.id === "CHLOR_A" ? v.sensors?.[s.chlSensor] : undefined;
+  const fetchNote =
+    (sensor ? tx(sensor.note, sensor.note_en) : "") ||
+    (v.id === "AOD" && s.aodSource === "power" && v.fallback ? tx(v.fallback.note_es, v.fallback.note_en) : "") ||
+    (v.fetch_note ? tx(v.fetch_note, v.fetch_note_en) : "");
   const qn = v.quality_notes.filter((q) => !q.sensors || (v.id === "CHLOR_A" && q.sensors.includes(s.chlSensor)));
   const pairs = pairsOf(v.id);
   const others = VARIABLES.filter((x) => x.id !== v.id && !pairs.includes(x.id));
@@ -129,21 +147,22 @@ function variableHtml(s: State): string {
 
   return `
   <section class="step" aria-labelledby="s1">
-    ${stepHead(1, "Variable", "¿Qué quieres medir?").replace("<h2>", '<h2 id="s1">')}
-    ${surface ? `<p class="small muted">Filtrado para: <strong>${SURFACE_LABEL[surface]}</strong>. Las variables que no aplican aparecen atenuadas.</p>` : ""}
+    ${stepHead(1, L("Variable", "Variable"), L("¿Qué quieres medir?", "What do you want to measure?")).replace("<h2>", '<h2 id="s1">')}
+    ${surface ? `<p class="small muted">${L("Filtrado para", "Filtered for")}: <strong>${surfaceLabel(surface)}</strong>. ${L("Las variables que no aplican aparecen atenuadas.", "Variables that do not apply are dimmed.")}</p>` : ""}
     ${groups}
     <div class="var-detail">
-      <p class="small"><span class="muted">Fuente:</span> ${esc(sourceLabel(v, s))}${endY ? ` · termina en ${endY}` : ""}</p>
+      <p class="small"><span class="muted">${L("Fuente", "Source")}:</span> ${esc(sourceLabel(v, s))}${endY ? ` · ${L("termina en", "ends in")} ${endY}` : ""}</p>
+      ${sci ? `<p class="small mono src-ids">${esc(sourceIds(v, s))}</p>` : ""}
       ${extra.join("")}
       ${status}
-      ${qn.map((q) => `<p class="note ${q.severity === "critical" ? "note-crit" : "note-warn"}"><strong>Calidad del sensor desde ${q.after}.</strong> ${esc(q.text_es)}</p>`).join("")}
-      ${fetchNote ? `<details class="small"><summary>Nota técnica de la fuente</summary><p>${esc(fetchNote)}</p></details>` : ""}
+      ${qn.map((q) => `<p class="note ${q.severity === "critical" ? "note-crit" : "note-warn"}"><strong>${L("Calidad del sensor desde", "Sensor quality since")} ${q.after}.</strong> ${esc(tx(q.text_es, q.text_en))}</p>`).join("")}
+      ${fetchNote ? `<details class="small"${sci ? " open" : ""}><summary>${L("Nota técnica de la fuente", "Technical note on the source")}</summary><p>${esc(fetchNote)}</p></details>` : ""}
       <label class="field">
-        <span class="field-label">Comparar con otra variable <span class="muted">(acoplamiento, opcional)</span></span>
+        <span class="field-label">${L("Comparar con otra variable", "Compare with another variable")} <span class="muted">(${L("acoplamiento, opcional", "coupling, optional")})</span></span>
         <select data-action="pair" data-k="pair">
-          <option value="">Ninguna</option>
-          ${pairs.length ? `<optgroup label="Pareja física sugerida">${pairs.map((p) => `<option value="${p}" ${s.pairId === p ? "selected" : ""}>${esc(getVar(p).name_es)}</option>`).join("")}</optgroup>` : ""}
-          <optgroup label="Otras">${others.map((p) => `<option value="${p.id}" ${s.pairId === p.id ? "selected" : ""}>${esc(p.name_es)}</option>`).join("")}</optgroup>
+          <option value="">${L("Ninguna", "None")}</option>
+          ${pairs.length ? `<optgroup label="${L("Pareja física sugerida", "Suggested physical pair")}">${pairs.map((p) => `<option value="${p}" ${s.pairId === p ? "selected" : ""}>${esc(varName(getVar(p)))}</option>`).join("")}</optgroup>` : ""}
+          <optgroup label="${L("Otras", "Others")}">${others.map((p) => `<option value="${p.id}" ${s.pairId === p.id ? "selected" : ""}>${esc(varName(p))}</option>`).join("")}</optgroup>
         </select>
       </label>
     </div>
@@ -160,22 +179,26 @@ function slotCard(s: State, slot: Slot): string {
     <button type="button" class="slot-btn" data-action="slot" data-v="${slot}" data-k="slot-${slot}" aria-pressed="${active}">
       <span class="slot-badge">${slot}</span>
       <span class="slot-body">
-        <span class="slot-title">${r?.name ? esc(r.name) : `Región ${slot}`}${active && s.mode === "dipole" ? ' <span class="muted small">(editando)</span>' : ""}</span>
-        <span class="slot-desc mono small">${r ? `${r.kind === "point" ? "Punto" : "Área"} · ${esc(describeRegion(r))}` : "Sin elegir: haz clic en el globo"}</span>
-        ${r ? `<span class="tag tag-surface">${SURFACE_LABEL[r.surface]}</span>` : ""}
+        <span class="slot-title">${r && regionName(r) ? esc(regionName(r)!) : `${L("Región", "Region")} ${slot}`}${active && s.mode === "dipole" ? ` <span class="muted small">(${L("editando", "editing")})</span>` : ""}</span>
+        <span class="slot-desc mono small">${r ? `${r.kind === "point" ? L("Punto", "Point") : L("Área", "Area")} · ${esc(describeRegion(r))}` : L("Sin elegir: haz clic en el globo", "Not set: click on the globe")}</span>
+        ${r ? `<span class="tag tag-surface">${surfaceLabel(r.surface)}</span>` : ""}
       </span>
     </button>
     ${
       csvNeeded
         ? `<label class="csv-drop small">
             <input type="file" accept=".csv,.txt,text/csv" data-action="csv" data-v="${slot}">
-            <span>${s.csv[csvKey] ? `CSV cargado: ${s.csv[csvKey]!.values.length} meses` : "Cargar CSV de Giovanni para esta región"}</span>
+            <span>${s.csv[csvKey] ? L(`CSV cargado: ${s.csv[csvKey]!.values.length} meses`, `CSV loaded: ${s.csv[csvKey]!.values.length} months`) : L("Cargar CSV de Giovanni para esta región", "Load a Giovanni CSV for this region")}</span>
           </label>`
         : csvOptional
-          ? `<details class="csv-alt small"><summary>¿Servidor ERDDAP caído? Usar un CSV propio</summary>
+          ? `<details class="csv-alt small"><summary>${L("¿Servidor ERDDAP caído? Usar un CSV propio", "ERDDAP server down? Use your own CSV")}</summary>
               <label class="csv-drop">
                 <input type="file" accept=".csv,.txt,text/csv" data-action="csv" data-v="${slot}">
-                <span>${s.csv[csvKey] ? `CSV cargado: ${s.csv[csvKey]!.values.length} meses (se usará en lugar del servidor)` : "Columnas: fecha (AAAA-MM) y valor"}</span>
+                <span>${
+                  s.csv[csvKey]
+                    ? L(`CSV cargado: ${s.csv[csvKey]!.values.length} meses (se usará en lugar del servidor)`, `CSV loaded: ${s.csv[csvKey]!.values.length} months (used instead of the server)`)
+                    : L("Columnas: fecha (AAAA-MM) y valor", "Columns: date (YYYY-MM) and value")
+                }</span>
               </label>
             </details>`
           : ""
@@ -188,31 +211,34 @@ function regionHtml(s: State): string {
   const hint = active ? hypothesis(active) : null;
   return `
   <section class="step" aria-labelledby="s2">
-    ${stepHead(2, "Región", "¿Dónde quieres investigar?").replace("<h2>", '<h2 id="s2">')}
+    ${stepHead(2, L("Región", "Region"), L("¿Dónde quieres investigar?", "Where do you want to investigate?")).replace("<h2>", '<h2 id="s2">')}
     ${segmented(
-      "Modo",
+      L("Modo", "Mode"),
       s.mode,
       [
-        { v: "single", label: "Una región" },
-        { v: "dipole", label: "Dos regiones (Dipolo A frente a B)" },
+        { v: "single", label: L("Una región", "One region") },
+        { v: "dipole", label: L("Dos regiones (Dipolo A frente a B)", "Two regions (Dipole A versus B)") },
       ],
       "mode",
     )}
-    <p class="small how">Haz <strong>clic en el globo</strong> para elegir un punto, o usa la herramienta de <strong>rectángulo</strong> (barra del mapa, arriba a la derecha) para un área.${s.mode === "dipole" ? " Elige cuál región editar tocando su tarjeta." : ""}</p>
+    <p class="small how">${L(
+      "Haz <strong>clic en el globo</strong> para elegir un punto, o usa la herramienta de <strong>rectángulo</strong> (barra del mapa, arriba a la derecha) para un área.",
+      "<strong>Click on the globe</strong> to pick a point, or use the <strong>rectangle</strong> tool (map toolbar, top right) for an area.",
+    )}${s.mode === "dipole" ? L(" Elige cuál región editar tocando su tarjeta.", " Choose which region to edit by tapping its card.") : ""}</p>
     <div class="slots">
       ${slotCard(s, "A")}
       ${s.mode === "dipole" ? slotCard(s, "B") : ""}
     </div>
     <form class="coords" data-action="coords" autocomplete="off">
-      <span class="field-label">Escribir coordenadas${s.mode === "dipole" ? ` de la región ${s.activeSlot}` : ""}</span>
+      <span class="field-label">${L("Escribir coordenadas", "Type coordinates")}${s.mode === "dipole" ? ` ${L("de la región", "for region")} ${s.activeSlot}` : ""}</span>
       <div class="coords-row">
-        <label><span class="sr">Latitud</span><input name="lat" type="number" step="any" min="-90" max="90" placeholder="Latitud (9.1)" data-k="lat" required></label>
-        <label><span class="sr">Longitud</span><input name="lon" type="number" step="any" min="-180" max="180" placeholder="Longitud (-79.7)" data-k="lon" required></label>
-        <button type="submit" class="btn" data-k="coords-go">Usar</button>
+        <label><span class="sr">${L("Latitud", "Latitude")}</span><input name="lat" type="number" step="any" min="-90" max="90" placeholder="${L("Latitud", "Latitude")} (9.1)" data-k="lat" required></label>
+        <label><span class="sr">${L("Longitud", "Longitude")}</span><input name="lon" type="number" step="any" min="-180" max="180" placeholder="${L("Longitud", "Longitude")} (-79.7)" data-k="lon" required></label>
+        <button type="submit" class="btn" data-k="coords-go">${L("Usar", "Use")}</button>
       </div>
     </form>
-    ${s.mode === "dipole" && s.regions.A ? `<button type="button" class="btn btn-ghost" data-action="suggest" data-k="suggest">Sugerir región B contraparte</button>` : ""}
-    ${hint ? `<aside class="hint"><span class="eyebrow">Pista para investigar</span><p>${esc(hint)}</p></aside>` : ""}
+    ${s.mode === "dipole" && s.regions.A ? `<button type="button" class="btn btn-ghost" data-action="suggest" data-k="suggest">${L("Sugerir región B contraparte", "Suggest a counterpart region B")}</button>` : ""}
+    ${hint && s.level === "student" ? `<aside class="hint"><span class="eyebrow">${L("Pista para investigar", "Research hint")}</span><p>${esc(hint)}</p></aside>` : ""}
   </section>`;
 }
 
@@ -226,40 +252,52 @@ function periodHtml(s: State): string {
   const lat = (s.regions.A ?? null)?.lat ?? null;
   return `
   <section class="step" aria-labelledby="s3">
-    ${stepHead(3, "Periodo y estación", "¿Qué años y qué meses?").replace("<h2>", '<h2 id="s3">')}
+    ${stepHead(3, L("Periodo y estación", "Period and season"), L("¿Qué años y qué meses?", "Which years and which months?")).replace("<h2>", '<h2 id="s3">')}
     <div class="period">
-      <label class="field"><span class="field-label">Desde</span><input type="number" min="${minY}" max="${maxY}" value="${y0}" data-action="y0" data-k="y0"></label>
-      <label class="field"><span class="field-label">Hasta</span><input type="number" min="${minY}" max="${maxY}" value="${y1}" data-action="y1" data-k="y1"></label>
-      <div class="field"><span class="field-label">Rápido</span>
+      <label class="field"><span class="field-label">${L("Desde", "From")}</span><input type="number" min="${minY}" max="${maxY}" value="${y0}" data-action="y0" data-k="y0"></label>
+      <label class="field"><span class="field-label">${L("Hasta", "To")}</span><input type="number" min="${minY}" max="${maxY}" value="${y1}" data-action="y1" data-k="y1"></label>
+      <div class="field"><span class="field-label">${L("Rápido", "Quick")}</span>
         <div class="quick">
           <button type="button" class="btn btn-ghost" data-action="range" data-v="all" data-k="range-all">${minY}–${maxY}</button>
           ${minY < 2002 ? `<button type="button" class="btn btn-ghost" data-action="range" data-v="2002" data-k="range-2002">2002–${maxY}</button>` : ""}
         </div>
       </div>
     </div>
-    <p class="small muted">Datos mensuales. Esta variable tiene registro desde ${minY}${endYearOf(v, s) ? ` hasta ${maxY}` : ""}.</p>
-    ${span < 15 ? `<p class="note note-warn"><strong>Serie corta (${span} años).</strong> Con menos de 15 años es difícil separar una tendencia de la variación natural.</p>` : ""}
+    <p class="small muted">${L("Datos mensuales. Esta variable tiene registro desde", "Monthly data. This variable has records from")} ${minY}${endYearOf(v, s) ? ` ${L("hasta", "to")} ${maxY}` : ""}.</p>
+    ${
+      span < 15
+        ? `<p class="note note-warn"><strong>${L(`Serie corta (${span} años).`, `Short series (${span} years).`)}</strong> ${L(
+            "Con menos de 15 años es difícil separar una tendencia de la variación natural.",
+            "With fewer than 15 years it is hard to separate a trend from natural variability.",
+          )}</p>`
+        : ""
+    }
     <div class="field">
-      <span class="field-label">Estación</span>
-      ${segmented("Estación", s.season, SEASONS.map((x) => ({ v: x.id, label: x.short, title: x.long })), "season")}
-      <p class="small">Analizando: <strong>${esc(seasonText(s.season, lat))}</strong>.</p>
+      <span class="field-label">${L("Estación", "Season")}</span>
+      ${segmented(L("Estación", "Season"), s.season, seasons().map((x) => ({ v: x.id, label: x.short, title: x.long })), "season")}
+      <p class="small">${L("Analizando", "Analyzing")}: <strong>${esc(seasonText(s.season, lat))}</strong>.</p>
     </div>
   </section>`;
 }
 
 function runHtml(s: State): string {
   const missing: string[] = [];
-  if (!s.regions.A) missing.push("la región A");
-  if (s.mode === "dipole" && !s.regions.B) missing.push("la región B");
+  if (!s.regions.A) missing.push(L("la región A", "region A"));
+  if (s.mode === "dipole" && !s.regions.B) missing.push(L("la región B", "region B"));
   const busy = s.run.status === "loading";
-  const engineTxt = s.engine === "ready" ? "Motor Rust/WASM listo" : s.engine === "loading" ? "Cargando motor Rust/WASM" : "Motor no disponible";
+  const ready =
+    s.engine === "ready"
+      ? L("Calcula los pasos 4 y 5.", "Computes steps 4 and 5.")
+      : s.engine === "loading"
+        ? L("Preparando el cálculo estadístico…", "Preparing the statistics…")
+        : L("El cálculo estadístico no está disponible.", "Statistics are not available.");
   return `
   <div class="run">
     <button type="button" class="btn btn-primary" data-action="run" data-k="run" ${missing.length || busy || s.engine !== "ready" ? "disabled" : ""}>
-      ${busy ? "Analizando…" : "Analizar tendencia"}
+      ${busy ? L("Analizando…", "Analyzing…") : L("Analizar tendencia", "Analyze trend")}
     </button>
     <p class="small muted run-status" aria-live="polite">${
-      busy ? esc((s.run as { msg: string }).msg) : missing.length ? `Falta elegir ${missing.join(" y ")}.` : `${engineTxt}. Calcula los pasos 4 y 5.`
+      busy ? esc((s.run as { msg: string }).msg) : missing.length ? L(`Falta elegir ${missing.join(" y ")}.`, `Still need to pick ${missing.join(" and ")}.`) : ready
     }</p>
   </div>`;
 }
