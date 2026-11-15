@@ -1,8 +1,11 @@
 // Figuras SVG exportables con Observable Plot: Significance Horizon y Regime Decoupling.
-import { L } from "../i18n";
+import { L, dec } from "../i18n";
 import * as Plot from "@observablehq/plot";
 import type { HorizonWindow } from "../engine/types";
-import { fmt } from "../text";
+import { fmt, fmtP } from "../text";
+
+/** true si el punto queda en la mitad baja del eje log (la etiqueta va encima). */
+const lowerHalf = (p: number, minP: number): boolean => Math.log10(p) < Math.log10(minP) / 2;
 
 const INK = "#1D1D1B";
 const P_FLOOR = 1e-12;
@@ -23,22 +26,35 @@ export function horizonPlot(sets: HorizonSet[], hr: boolean, width: number): SVG
     s.windows.map((w) => ({ set: s.label, color: s.color, years: w.years, p: Math.max(P_FLOOR, hr ? w.pHr : w.p) })),
   );
   const minP = Math.max(P_FLOOR, Math.min(0.01, ...rows.map((r) => r.p)) / 2);
+  const minX = Math.min(5, ...rows.map((r) => r.years));
   const maxX = Math.max(10, ...rows.map((r) => r.years));
   const marks: Plot.Markish[] = [
-    Plot.rect([{ x1: 5, x2: maxX, y1: minP, y2: 0.05 }], { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "#005A8D", fillOpacity: 0.06 }),
+    Plot.rect([{ x1: minX, x2: maxX, y1: minP, y2: 0.05 }], { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "#005A8D", fillOpacity: 0.06 }),
     Plot.ruleY([0.05], { stroke: INK, strokeDasharray: "5,4" }),
-    Plot.text([{ x: maxX, y: 0.05 }], { x: "x", y: "y", text: () => "umbral p = 0,05", textAnchor: "end", dy: -7, fill: INK }),
-    Plot.text([{ x: 5, y: minP }], { x: "x", y: "y", text: () => "zona significativa", textAnchor: "start", dx: 4, dy: -8, fill: "#005A8D" }),
+    Plot.text([{ x: maxX, y: 0.05 }], { x: "x", y: "y", text: () => L("umbral p = 0,05", "threshold p = 0.05"), textAnchor: "end", dy: -7, fill: INK }),
+    Plot.text([{ x: minX, y: minP }], { x: "x", y: "y", text: () => L("zona significativa", "significant zone"), textAnchor: "start", dx: 4, dy: -8, fill: "#005A8D" }),
   ];
+  const tip = (d: { years: number; p: number }) => `${fmt(d.years, 3)} ${L("años", "years")}: p = ${d.p.toExponential(2)}`;
   for (const s of sets) {
     const data = rows.filter((r) => r.set === s.label);
     marks.push(Plot.line(data, { x: "years", y: "p", stroke: s.color, strokeWidth: 2 }));
-    marks.push(
-      Plot.dot(
-        data.filter((d) => [5, 10, 20, 40].includes(d.years)),
-        { x: "years", y: "p", fill: s.color, r: 4, stroke: "#F4F3EF", strokeWidth: 1.5, title: (d: { years: number; p: number }) => `${d.years} ${L("años", "years")}: p = ${d.p.toExponential(2)}` },
-      ),
-    );
+    marks.push(Plot.dot(data.slice(0, -1).filter((d) => [5, 10, 20, 40].includes(d.years)), { x: "years", y: "p", fill: s.color, r: 4, stroke: "#F4F3EF", strokeWidth: 1.5, title: tip }));
+    // último punto = serie completa: el mismo p-valor que la tarjeta de arriba
+    const last = data.at(-1);
+    if (last) {
+      marks.push(Plot.dot([last], { x: "years", y: "p", fill: "#F4F3EF", stroke: s.color, r: 5, strokeWidth: 2, title: tip }));
+      marks.push(
+        Plot.text([last], {
+          x: "years",
+          y: "p",
+          text: (d: { years: number; p: number }) => `${L("serie completa", "full series")} · p = ${fmtP(d.p)}`,
+          textAnchor: "end",
+          dx: -8,
+          dy: lowerHalf(last.p, minP) ? -10 : 12,
+          fill: s.color,
+        }),
+      );
+    }
   }
   return Plot.plot({
     width,
@@ -46,13 +62,13 @@ export function horizonPlot(sets: HorizonSet[], hr: boolean, width: number): SVG
     marginLeft: 62,
     marginBottom: 40,
     style: STYLE,
-    x: { label: L("Años más recientes incluidos en la prueba →", "Most recent years included in the test →"), domain: [5, maxX], ticks: [5, 10, 15, 20, 25, 30, 35, 40, 45].filter((t) => t <= maxX), grid: true },
+    x: { label: L("Años más recientes incluidos en la prueba →", "Most recent years included in the test →"), domain: [minX, maxX], ticks: [5, 10, 15, 20, 25, 30, 35, 40, 45].filter((t) => t <= maxX), grid: true },
     y: {
       type: "log",
       label: L("↑ p-valor (escala logarítmica)", "↑ p-value (log scale)"),
       domain: [minP, 1],
       grid: true,
-      tickFormat: (d: number) => (d >= 0.001 ? String(d).replace(".", ",") : `1e${Math.round(Math.log10(d))}`),
+      tickFormat: (d: number) => (d >= 0.001 ? dec(String(d)) : `1e${Math.round(Math.log10(d))}`),
     },
     marks,
   });

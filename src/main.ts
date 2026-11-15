@@ -5,7 +5,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./styles.css";
 
-import { lowerName } from "./text";
+import { coverageNote, lowerName } from "./text";
 import { applicable, endYearOf, getVar, pairsOf, short, startYearOf, varName } from "./catalog";
 import { parseCsv } from "./data/csv";
 import { getSeries } from "./data/fetch";
@@ -356,6 +356,11 @@ async function runAnalysis(): Promise<void> {
       createdAt: new Date().toISOString(),
     };
     setState({ run: { status: "done", analysis } });
+    const gaps = [analysis.A, analysis.B]
+      .filter((rr): rr is RegionResult => !!rr)
+      .map((rr) => coverageNote(rr.series, analysis.y0, analysis.y1, analysis.mode === "dipole" ? L(` (región ${rr.slot})`, ` (region ${rr.slot})`) : ""))
+      .filter((x): x is string => !!x);
+    if (gaps.length) notify(gaps.join(" "));
     const sum = document.querySelector<HTMLElement>(".summary");
     const mainEl = document.getElementById("main")!;
     if (sum && getComputedStyle(mainEl).display !== "contents") mainEl.scrollTo({ top: mainEl.scrollTop + sum.getBoundingClientRect().top - mainEl.getBoundingClientRect().top - 8, behavior: "smooth" });
@@ -375,15 +380,20 @@ async function applyPreset(id: string): Promise<void> {
     classify(p.A).then((surface) => ({ ...p.A, surface }) as Region),
     p.B ? classify(p.B).then((surface) => ({ ...p.B!, surface }) as Region) : Promise.resolve(null),
   ]);
+  const st = getState();
+  const aodSource = p.aodSource ?? st.aodSource;
+  const chlSensor = p.chlSensor ?? st.chlSensor;
   setState({
     variableId: p.variableId,
     pairId: p.pairId,
     mode: p.mode,
-    y0: p.y0,
-    y1: p.y1,
+    // el rango del caso se ajusta al registro real de su variable/sensor y no se trata como
+    // personalizado: al cambiar de variable vuelve al registro completo de la nueva
+    ...clampYears({ ...st, y0: p.y0, y1: p.y1, aodSource, chlSensor }, p.variableId),
+    customRange: false,
     season: p.season,
-    aodSource: p.aodSource ?? getState().aodSource,
-    chlSensor: p.chlSensor ?? getState().chlSensor,
+    aodSource,
+    chlSensor,
     regions: { A, B },
     activeSlot: "A",
   });
@@ -399,14 +409,35 @@ function defaultPair(variableId: string, s: State): string | null {
   return pairsOf(variableId).find((p) => applicable(p, surf)) ?? null;
 }
 
-function clampYears(s: State, variableId = s.variableId): Pick<State, "y0" | "y1"> {
+/** Registro completo disponible para la variable (según sensor/fuente elegidos). */
+function fullRange(s: State, variableId = s.variableId): { min: number; max: number } {
   const v = getVar(variableId);
-  const min = startYearOf(v, s);
-  const max = endYearOf(v, s) ?? CURRENT_YEAR;
+  return { min: startYearOf(v, s), max: endYearOf(v, s) ?? CURRENT_YEAR };
+}
+
+/**
+ * Ajusta [y0, y1] al registro de la variable con al menos 5 años. `edited` indica qué
+ * extremo tocó el usuario, para mover el otro y no deshacer lo que escribió.
+ */
+function clampYears(s: State, variableId = s.variableId, edited?: "y0" | "y1"): Pick<State, "y0" | "y1"> {
+  const { min, max } = fullRange(s, variableId);
   let y0 = Math.min(Math.max(s.y0, min), max - 4);
   let y1 = Math.max(Math.min(s.y1, max), min + 4);
-  if (y1 - y0 < 4) y0 = Math.max(min, y1 - 4);
+  if (y1 - y0 < 4) {
+    if (edited === "y0") y1 = Math.min(max, y0 + 4);
+    else y0 = Math.max(min, y1 - 4);
+  }
   return { y0, y1 };
+}
+
+/**
+ * Rango al cambiar de variable, sensor o fuente: sin rango personalizado se usa el registro
+ * completo de la nueva fuente (evita arrastrar, p. ej., 2002–2026 de un caso de ejemplo).
+ */
+function rangeFor(s: State, variableId = s.variableId): Pick<State, "y0" | "y1"> {
+  if (s.customRange) return clampYears(s, variableId);
+  const { min, max } = fullRange(s, variableId);
+  return { y0: min, y1: max };
 }
 
 document.addEventListener("click", (e) => {
@@ -419,10 +450,10 @@ document.addEventListener("click", (e) => {
       void applyPreset(v);
       break;
     case "sensor":
-      setState((st) => ({ chlSensor: v as State["chlSensor"], ...clampYears({ ...st, chlSensor: v as State["chlSensor"] }) }));
+      setState((st) => ({ chlSensor: v as State["chlSensor"], ...rangeFor({ ...st, chlSensor: v as State["chlSensor"] }) }));
       break;
     case "aod":
-      setState((st) => ({ aodSource: v as State["aodSource"], ...clampYears({ ...st, aodSource: v as State["aodSource"] }) }));
+      setState((st) => ({ aodSource: v as State["aodSource"], ...rangeFor({ ...st, aodSource: v as State["aodSource"] }) }));
       break;
     case "mode":
       setState({ mode: v as State["mode"], activeSlot: v === "dipole" && s.regions.A && !s.regions.B ? "B" : "A" });
@@ -442,10 +473,10 @@ document.addEventListener("click", (e) => {
       break;
     }
     case "range": {
-      const vv = getVar(s.variableId);
-      const min = startYearOf(vv, s);
-      const max = endYearOf(vv, s) ?? CURRENT_YEAR;
-      setState({ y0: v === "2002" ? 2002 : min, y1: max });
+      const { min, max } = fullRange(s);
+      // "Registro completo" sigue a la variable; 2002–… es una elección explícita del usuario
+      if (v === "2002") setState({ ...clampYears({ ...s, y0: 2002, y1: max }), customRange: true });
+      else setState({ y0: min, y1: max, customRange: false });
       break;
     }
     case "season":
@@ -508,7 +539,7 @@ document.addEventListener("change", (e) => {
   switch (t.dataset.action) {
     case "variable": {
       const id = t.value;
-      setState({ variableId: id, pairId: defaultPair(id, s), ...clampYears(s, id) });
+      setState({ variableId: id, pairId: defaultPair(id, s), ...rangeFor(s, id) });
       break;
     }
     case "pair":
@@ -516,9 +547,25 @@ document.addEventListener("change", (e) => {
       break;
     case "y0":
     case "y1": {
+      const key = t.dataset.action as "y0" | "y1";
       const n = parseInt(t.value, 10);
-      if (!Number.isFinite(n)) break;
-      setState((st) => clampYears({ ...st, [t.dataset.action!]: n }));
+      if (!Number.isFinite(n)) {
+        setState({}); // vuelve a pintar el valor vigente
+        break;
+      }
+      const want = { y0: s.y0, y1: s.y1, [key]: n };
+      const next = clampYears({ ...s, ...want }, s.variableId, key);
+      const { min, max } = fullRange(s);
+      setState({ ...next, customRange: !(next.y0 === min && next.y1 === max) });
+      if (next.y0 !== want.y0 || next.y1 !== want.y1) {
+        const name = varName(getVar(s.variableId));
+        notify(
+          L(
+            `Pediste ${want.y0}–${want.y1}, pero ${name} solo tiene registro de ${min} a ${max} y se necesitan al menos 5 años. Rango ajustado a ${next.y0}–${next.y1}.`,
+            `You asked for ${want.y0}–${want.y1}, but ${name} only has records from ${min} to ${max} and at least 5 years are needed. Range adjusted to ${next.y0}–${next.y1}.`,
+          ),
+        );
+      }
       break;
     }
     case "hr":

@@ -24,7 +24,7 @@ import { hypothesis } from "../hints";
 import { L } from "../i18n";
 import { PRESETS } from "../presets";
 import { CURRENT_YEAR, type Slot, type State } from "../state";
-import { esc } from "../text";
+import { coverageNote, esc } from "../text";
 import { COLORS } from "./map";
 
 function unitHint(id: string): string {
@@ -249,21 +249,42 @@ function periodHtml(s: State): string {
   const y0 = Math.max(s.y0, minY);
   const y1 = Math.min(s.y1, maxY);
   const span = y1 - y0 + 1;
-  const lat = (s.regions.A ?? null)?.lat ?? null;
+  const quick = [
+    { v: "all", y0: minY, label: `${minY}–${maxY}`, title: L("Registro completo de la variable", "Full record of the variable") },
+    ...(minY < 2002 ? [{ v: "2002", y0: 2002, label: `2002–${maxY}`, title: L("Era de los satélites EOS (2002 en adelante)", "EOS satellite era (2002 onward)") }] : []),
+  ];
+  const quickOn = quick.find((q) => q.y0 === y0 && maxY === y1);
+  // el último análisis (si es de esta misma variable y rango) dice qué años trajo de verdad la fuente
+  let gap = "";
+  if (s.run.status === "done") {
+    const a = s.run.analysis;
+    if (a.variableId === s.variableId && a.y0 === y0 && a.y1 === y1 && a.chlSensor === s.chlSensor && a.aodSource === s.aodSource) {
+      gap = [a.A, a.B]
+        .filter((rr): rr is NonNullable<typeof rr> => !!rr)
+        .map((rr) => coverageNote(rr.series, a.y0, a.y1, a.mode === "dipole" ? L(` (región ${rr.slot})`, ` (region ${rr.slot})`) : ""))
+        .filter(Boolean)
+        .join(" ");
+    }
+  }
   return `
   <section class="step" aria-labelledby="s3">
     ${stepHead(3, L("Periodo y estación", "Period and season"), L("¿Qué años y qué meses?", "Which years and which months?")).replace("<h2>", '<h2 id="s3">')}
     <div class="period">
       <label class="field"><span class="field-label">${L("Desde", "From")}</span><input type="number" min="${minY}" max="${maxY}" value="${y0}" data-action="y0" data-k="y0"></label>
       <label class="field"><span class="field-label">${L("Hasta", "To")}</span><input type="number" min="${minY}" max="${maxY}" value="${y1}" data-action="y1" data-k="y1"></label>
-      <div class="field"><span class="field-label">${L("Rápido", "Quick")}</span>
+      <div class="field"><span class="field-label">${L("Rápido", "Quick")}${quickOn ? "" : ` <span class="muted">· ${L("rango personalizado", "custom range")} ${y0}–${y1}</span>`}</span>
         <div class="quick">
-          <button type="button" class="btn btn-ghost" data-action="range" data-v="all" data-k="range-all">${minY}–${maxY}</button>
-          ${minY < 2002 ? `<button type="button" class="btn btn-ghost" data-action="range" data-v="2002" data-k="range-2002">2002–${maxY}</button>` : ""}
+          ${quick
+            .map(
+              (q) =>
+                `<button type="button" class="btn btn-ghost${q === quickOn ? " is-on" : ""}" aria-pressed="${q === quickOn}" title="${esc(q.title)}" data-action="range" data-v="${q.v}" data-k="range-${q.v}">${q.label}</button>`,
+            )
+            .join("")}
         </div>
       </div>
     </div>
     <p class="small muted">${L("Datos mensuales. Esta variable tiene registro desde", "Monthly data. This variable has records from")} ${minY}${endYearOf(v, s) ? ` ${L("hasta", "to")} ${maxY}` : ""}.</p>
+    ${gap ? `<p class="note note-warn"><strong>${L("El rango no coincide con los datos.", "The range does not match the data.")}</strong> ${esc(gap)}</p>` : ""}
     ${
       span < 15
         ? `<p class="note note-warn"><strong>${L(`Serie corta (${span} años).`, `Short series (${span} years).`)}</strong> ${L(
@@ -275,7 +296,7 @@ function periodHtml(s: State): string {
     <div class="field">
       <span class="field-label">${L("Estación", "Season")}</span>
       ${segmented(L("Estación", "Season"), s.season, seasons().map((x) => ({ v: x.id, label: x.short, title: x.long })), "season")}
-      <p class="small">${L("Analizando", "Analyzing")}: <strong>${esc(seasonText(s.season, lat))}</strong>.</p>
+      <p class="small">${L("Analizando", "Analyzing")}: <strong>${esc(seasonText(s.season, s.regions.A))}</strong>.</p>
     </div>
   </section>`;
 }

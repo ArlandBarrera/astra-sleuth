@@ -1,6 +1,7 @@
 // Formateo y lenguaje claro: convierte el JSON del motor en frases que entiende un
 // estudiante de secundaria, sin perder los números que necesita un científico.
 import { short, seasonText, type Season } from "./catalog";
+import { validRange, type MonthlySeries } from "./data/series";
 import type { AnalyzeOut } from "./engine/types";
 import { L, dec, lang, locale } from "./i18n";
 
@@ -98,7 +99,7 @@ export function verdict(
   units: string,
   place: string,
   season: Season,
-  lat: number | null,
+  region: { lat: number; lon: number } | null,
 ): Verdict {
   const mk = stats.mk;
   const p = hr ? mk.pHr : mk.p;
@@ -110,7 +111,7 @@ export function verdict(
   const flat = mk.slopeDecade === 0;
   const verb = flat ? L("no cambia", "does not change") : up ? L("sube", "rises") : L("baja", "falls");
   const amount = `${fmt(Math.abs(mk.slopeDecade))}${u ? " " + u : ""} ${L("por década", "per decade")}`;
-  const period = `${Math.round(stats.spanYears)} ${L("años", "years")}, ${seasonText(season, lat)}`;
+  const period = `${Math.round(stats.spanYears)} ${L("años", "years")}, ${seasonText(season, region)}`;
   const pct = Math.round(stats.completeness * 100);
 
   const headline = sig
@@ -132,9 +133,17 @@ export function verdict(
     const more = ok
       ? L(` Con el ritmo y el ruido actuales harían falta unos ${Math.ceil(rem!)} años más de datos.`, ` At the current rate and noise, about ${Math.ceil(rem!)} more years of data would be needed.`)
       : "";
+    // si alguna ventana reciente sí fue significativa, decirlo para no contradecir la gráfica
+    const rs = recentSignificant(stats, hr);
+    const recent = rs
+      ? L(
+          ` Algunas ventanas recientes (entre ${fmtYears(rs.min)} y ${fmtYears(rs.max)} años) sí dan p < 0,05, pero la serie completa no.`,
+          ` Some recent windows (between ${fmtYears(rs.min)} and ${fmtYears(rs.max)} years) do reach p < 0.05, but the full series does not.`,
+        )
+      : "";
     line2 = L(
-      `El cambio todavía se confunde con la variación natural: ${pEq(p)}, mayor o igual que 0,05.${more}`,
-      `The change still blends in with natural variability: ${pEq(p)}, 0.05 or higher.${more}`,
+      `El cambio todavía se confunde con la variación natural: ${pEq(p)}, mayor o igual que 0,05.${recent}${more}`,
+      `The change still blends in with natural variability: ${pEq(p)}, 0.05 or higher.${recent}${more}`,
     );
   }
   let line3: string;
@@ -171,4 +180,46 @@ export function corrSentence(rho: number, p: number, aName: string, bName: strin
         `Relación ${strength} y opuesta: cuando ${aName} está por encima de lo normal, ${bName} tiende a estar por debajo ${tail}.`,
         `A ${strength}, opposite relationship: when ${aName} is above normal, ${bName} tends to be below ${tail}.`,
       );
+}
+
+/**
+ * Aviso cuando el rango pedido (desde/hasta o fecha rápida) no coincide con los datos que
+ * realmente entregó la fuente. null si coinciden a nivel de año.
+ */
+export function coverageNote(series: MonthlySeries, y0: number, y1: number, where = ""): string | null {
+  const r = validRange(series);
+  if (!r) return null;
+  if (r.y0 <= y0 && r.y1 >= y1) return null;
+  return L(
+    `Pediste ${y0}–${y1}, pero el dataset${where} solo tiene datos de ${ym(r.y0, r.m0)} a ${ym(r.y1, r.m1)}. El análisis usa ese periodo real (${r.y0}–${r.y1}).`,
+    `You asked for ${y0}–${y1}, but the dataset${where} only has data from ${ym(r.y0, r.m0)} to ${ym(r.y1, r.m1)}. The analysis uses that actual period (${r.y0}–${r.y1}).`,
+  );
+}
+
+/**
+ * Primer año L desde el cual la curva del Significance Horizon cruza p < 0,05 y se queda
+ * debajo para todas las ventanas más largas. null si la ventana completa no es significativa.
+ */
+/**
+ * Ventanas parciales (sin contar la serie completa, que es la última) con p < 0,05:
+ * menor y mayor longitud en años. null si ninguna baja de 0,05.
+ */
+export function recentSignificant(stats: AnalyzeOut, hr: boolean): { min: number; max: number } | null {
+  const part = stats.horizon.windows.slice(0, -1).filter((w) => (hr ? w.pHr : w.p) < 0.05);
+  if (!part.length) return null;
+  return { min: Math.min(...part.map((w) => w.years)), max: Math.max(...part.map((w) => w.years)) };
+}
+
+/** Años de una ventana del Horizon: enteros tal cual, la serie completa con un decimal. */
+export const fmtYears = (y: number): string => fmt(y, 3);
+
+export function significantSince(stats: AnalyzeOut, hr: boolean): number | null {
+  const ws = stats.horizon.windows;
+  let from: number | null = null;
+  for (let i = ws.length - 1; i >= 0; i--) {
+    const p = hr ? ws[i].pHr : ws[i].p;
+    if (p < 0.05) from = ws[i].years;
+    else break;
+  }
+  return from;
 }

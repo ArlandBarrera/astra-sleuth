@@ -180,13 +180,27 @@ export function seasons(): { id: Season; short: string; long: string }[] {
   ];
 }
 
-export function seasonText(s: Season, lat: number | null): string {
+/** Bounding box de Panamá: lat ∈ [7.0, 9.8], lon ∈ [-83.1, -77.1]. */
+export function inPanama(lat: number | null | undefined, lon: number | null | undefined): boolean {
+  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  return lat >= 7.0 && lat <= 9.8 && lon >= -83.1 && lon <= -77.1;
+}
+
+/**
+ * Texto de la estación. Los nombres del clima de Panamá (estación seca, lluvias) solo se
+ * usan dentro de Panamá; en el resto del trópico, o sin región, se muestra el código
+ * ("enero a marzo (JFM)"); fuera del trópico, el nombre según el hemisferio.
+ */
+export function seasonText(s: Season, region: { lat: number; lon: number } | null | undefined): string {
   if (s === "ALL") return L("todo el año", "the whole year");
   const base = seasons().find((x) => x.id === s)!.long;
-  const north = lat === null || lat >= 0;
-  const tropics = lat !== null && Math.abs(lat) < 23.5;
+  const lat = region?.lat ?? null;
+  if (lat === null) return `${base} (${s})`;
+  const panama = inPanama(lat, region?.lon);
+  if (!panama && Math.abs(lat) < 23.5) return `${base} (${s})`;
+  const north = lat >= 0;
   const en = lang() === "en";
-  const names: Record<Exclude<Season, "ALL">, string> = tropics
+  const names: Record<Exclude<Season, "ALL">, string> = panama
     ? en
       ? { DJF: "start of Panama's dry season", JFM: "Panama's dry season", MAM: "transition to the rains", JJA: "rainy season", SON: "heaviest rains in Panama" }
       : { DJF: "inicio de la estación seca en Panamá", JFM: "estación seca en Panamá", MAM: "transición a la lluvia", JJA: "estación lluviosa", SON: "lluvias más intensas en Panamá" }
