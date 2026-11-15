@@ -3,7 +3,7 @@ import { getVar, seasonText, short, sourceLabel, varName } from "../catalog";
 import { describeRegion, surfaceLabel } from "../geo";
 import { L, lang, locale } from "../i18n";
 import type { Analysis, RegionResult } from "../state";
-import { esc, fmt, fmtPSci, fmtSigned, prettyUnits, verdict, ym } from "../text";
+import { coverageNote, esc, fmt, fmtPSci, fmtSigned, prettyUnits, verdict, ym } from "../text";
 import { placeName } from "./results";
 
 function download(name: string, content: BlobPart, type: string): void {
@@ -79,7 +79,7 @@ export function exportDossier(a: Analysis, hr: boolean, canvases: HTMLCanvasElem
 
   const verdicts = rs
     .map((rr) => {
-      const vd = verdict(rr.stats, hr, a.variableId, rr.series.units, placeName(rr), a.season, rr.region.lat);
+      const vd = verdict(rr.stats, hr, a.variableId, rr.series.units, placeName(rr), a.season, rr.region);
       const mk = rr.stats.mk;
       const u = prettyUnits(rr.series.units);
       const pt = rr.stats.pettitt;
@@ -88,6 +88,10 @@ export function exportDossier(a: Analysis, hr: boolean, canvases: HTMLCanvasElem
         <p class="meta">${rr.region.kind === "point" ? L("Punto", "Point") : L("Área", "Area")} · ${esc(describeRegion(rr.region))} · ${surfaceLabel(rr.region.surface)}</p>
         <p class="headline">${esc(vd.headline)}</p>
         <ol>${vd.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ol>
+        ${(() => {
+          const g = coverageNote(rr.series, a.y0, a.y1);
+          return g ? `<p class="small"><strong>${L("Nota de cobertura", "Coverage note")}:</strong> ${esc(g)}</p>` : "";
+        })()}
         <table>
           <tr><th>${L("Pendiente de Sen", "Sen slope")}</th><td>${fmtSigned(mk.slopeDecade, 4)}${u ? " " + esc(u) : ""} ${L("por década", "per decade")}</td></tr>
           <tr><th>${L("IC 95 %", "95% CI")} ${hr ? L("(corregido)", "(corrected)") : ""}</th><td>[${fmtSigned((hr ? mk.ciHrDecade : mk.ciDecade)[0], 3)}, ${fmtSigned((hr ? mk.ciHrDecade : mk.ciDecade)[1], 3)}]</td></tr>
@@ -118,7 +122,7 @@ export function exportDossier(a: Analysis, hr: boolean, canvases: HTMLCanvasElem
   code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;word-break:break-all}
 </style></head><body><main>
 <p class="small">ASTRA SLEUTH · DOSSIER</p>
-<h1>${esc(varName(v))}: ${a.y0}–${a.y1}, ${esc(seasonText(a.season, a.A.region.lat))}</h1>
+<h1>${esc(varName(v))}: ${a.y0}–${a.y1}, ${esc(seasonText(a.season, a.A.region))}</h1>
 <p class="meta">${L("Generado", "Generated")} ${new Date(a.createdAt).toLocaleString(locale())} · ${esc(sourceLabel(v, a))} · ${L("Corrección de autocorrelación", "Autocorrelation correction")}: ${hr ? L("activada", "on") : L("desactivada", "off")}</p>
 ${verdicts}
 <h2>${L("Serie temporal (anomalías)", "Time series (anomalies)")}</h2>

@@ -176,3 +176,13 @@ export function firstLast(s: MonthlySeries): { first: string; last: string } | n
   const f = (i: number) => `${s.years[i]}-${String(s.months[i]).padStart(2, "0")}`;
   return { first: f(0), last: f(s.years.length - 1) };
 }
+
+/** Primer y último mes con dato válido (null si la serie no tiene ninguno). */
+export function validRange(s: MonthlySeries): { y0: number; m0: number; y1: number; m1: number } | null {
+  let i = 0;
+  while (i < s.values.length && s.values[i] === null) i++;
+  let j = s.values.length - 1;
+  while (j >= i && s.values[j] === null) j--;
+  if (i > j) return null;
+  return { y0: s.years[i], m0: s.months[i], y1: s.years[j], m1: s.months[j] };
+}

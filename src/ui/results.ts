@@ -5,7 +5,7 @@ import type { AnalyzeOut } from "../engine/types";
 import { describeRegion, regionName } from "../geo";
 import { L } from "../i18n";
 import type { Analysis, RegionResult, State } from "../state";
-import { corrSentence, lowerName, esc, fmt, fmtP, fmtPSci, pEq, fmtSigned, prettyUnits, verdict, ym } from "../text";
+import { corrSentence, coverageNote, lowerName, significantSince, recentSignificant, fmtYears, esc, fmt, fmtP, fmtPSci, pEq, fmtSigned, prettyUnits, verdict, ym } from "../text";
 import { timeSeriesChart, type ChartHandle } from "./charts";
 import { COLORS } from "./map";
 
@@ -90,7 +90,7 @@ function summaryHtml(a: Analysis, s: State): string {
   const sci = s.level === "scientist";
   const cards = list
     .map((rr) => {
-      const v = verdict(rr.stats, s.hr, a.variableId, rr.series.units, placeName(rr), a.season, rr.region.lat);
+      const v = verdict(rr.stats, s.hr, a.variableId, rr.series.units, placeName(rr), a.season, rr.region);
       const mk = rr.stats.mk;
       const u = prettyUnits(rr.series.units);
       const statLine = sci
@@ -104,6 +104,9 @@ function summaryHtml(a: Analysis, s: State): string {
       </article>`;
     })
     .join("");
+  const gaps = list
+    .map((rr) => coverageNote(rr.series, a.y0, a.y1, a.mode === "dipole" ? L(` (región ${rr.slot})`, ` (region ${rr.slot})`) : ""))
+    .filter((x): x is string => !!x);
   let dip = "";
   if (a.dipole?.all && a.B) {
     const name = lowerName(short(a.variableId));
@@ -121,6 +124,7 @@ function summaryHtml(a: Analysis, s: State): string {
         ${sci ? `<button type="button" class="btn btn-ghost" data-action="json-out" data-k="json-out">${L("JSON de estadísticos", "Statistics JSON")}</button>` : ""}
       </div>
     </div>
+    ${gaps.length ? `<p class="note note-warn"><strong>${L("El rango pedido no coincide con los datos.", "The requested range does not match the data.")}</strong> ${esc(gaps.join(" "))}</p>` : ""}
     <div class="verdicts ${list.length > 1 ? "two" : ""}">${cards}</div>
     ${dip}
   </section>`;
@@ -192,17 +196,30 @@ function factsStudent(st: AnalyzeOut, hr: boolean, u: string): string {
   const p = hr ? mk.pHr : mk.p;
   const sig = hr ? mk.significantHr : mk.significant;
   const need = st.horizon.yearsNeeded;
+  const rem = st.horizon.yearsRemaining;
+  let horizonFact: string;
+  if (sig) {
+    // ya significativa: la ventana mínima se lee de la curva observada, no de Weatherhead
+    const since = significantSince(st, hr) ?? Math.round(st.spanYears);
+    horizonFact = `<div><dt>${L("Ventana mínima observada", "Minimum observed window")}</dt><dd><strong>${fmtYears(since)} ${L("años", "years")}</strong> <span class="muted">${L(
+      `ya es significativa desde hace ${fmtYears(since)} años`,
+      `already significant over the last ${fmtYears(since)} years`,
+    )}</span></dd></div>`;
+  } else {
+    const value = need === null || rem === null || !Number.isFinite(rem) ? "—" : rem > 0 ? `≈ +${Math.ceil(rem)} ${L("años", "years")}` : "0";
+    const sub =
+      need === null
+        ? L("sin tendencia que detectar", "no trend to detect")
+        : rem !== null && rem > 0
+          ? L("más de datos al ritmo y ruido actuales", "more data at the current rate and noise")
+          : L("los años ya alcanzarían, pero la tendencia no es estable", "the years should suffice, but the trend is not stable");
+    horizonFact = `<div><dt>${L("Años extra estimados", "Estimated extra years")}</dt><dd><strong>${value}</strong> <span class="muted">${sub}</span></dd></div>`;
+  }
   return `<dl class="facts">
     <div><dt>${L("Cambio por década", "Change per decade")}</dt><dd><strong>${fmtSigned(mk.slopeDecade)}${u ? " " + esc(u) : ""}</strong><span class="muted"> (${L("entre", "between")} ${fmtSigned(ci[0])} ${L("y", "and")} ${fmtSigned(ci[1])})</span></dd></div>
     <div><dt>${L("p-valor", "p-value")}</dt><dd><strong>${fmtP(p)}</strong> <span class="muted">${sig ? L("menor que 0,05: significativa", "below 0.05: significant") : L("0,05 o más: no significativa", "0.05 or more: not significant")}</span></dd></div>
     <div><dt>${L("Años analizados", "Years analyzed")}</dt><dd><strong>${fmt(st.spanYears, 3)}</strong> <span class="muted">${st.pointsPerYear === 1 ? L("(un valor por año)", "(one value per year)") : L("(datos mensuales)", "(monthly data)")}</span></dd></div>
-    <div><dt>${L("Años necesarios para detectarla", "Years needed to detect it")}</dt><dd><strong>${need === null ? "—" : `≈ ${Math.ceil(need)}`}</strong> <span class="muted">${
-      sig
-        ? L("ya es significativa", "already significant")
-        : need === null
-          ? L("sin tendencia que detectar", "no trend to detect")
-          : L(`faltan ≈ ${Math.ceil(st.horizon.yearsRemaining ?? 0)}`, `≈ ${Math.ceil(st.horizon.yearsRemaining ?? 0)} to go`)
-    }</span></dd></div>
+    ${horizonFact}
   </dl>`;
 }
 
@@ -247,22 +264,40 @@ function factsScientist(st: AnalyzeOut, u: string): string {
   </table>`;
 }
 
+/**
+ * Pie del Significance Horizon. Lee la misma curva que se dibuja (cuyo último punto es la
+ * serie completa, igual que la tarjeta), así texto, gráfica y KPI no se contradicen.
+ */
 function horizonCaption(st: AnalyzeOut, hr: boolean): string {
-  const ws = st.horizon.windows;
-  let from: number | null = null;
-  for (let i = ws.length - 1; i >= 0; i--) {
-    const p = hr ? ws[i].pHr : ws[i].p;
-    if (p < 0.05) from = ws[i].years;
-    else break;
-  }
-  if (from !== null) return L(`Con los últimos <strong>${from} años</strong> o más, la tendencia ya es significativa.`, `With the last <strong>${from} years</strong> or more, the trend is already significant.`);
+  const from = significantSince(st, hr);
+  // 1) la serie completa es significativa
+  if (from !== null) return L(`Con los últimos <strong>${fmtYears(from)} años</strong> o más, la tendencia ya es significativa.`, `With the last <strong>${fmtYears(from)} years</strong> or more, the trend is already significant.`);
   const rem = st.horizon.yearsRemaining;
-  if (rem !== null && rem > 0)
+  const more =
+    rem !== null && rem > 0 && Number.isFinite(rem)
+      ? L(` Al ritmo actual harían falta <strong>≈ +${Math.ceil(rem)} años más</strong> de datos.`, ` At the current rate, <strong>≈ +${Math.ceil(rem)} more years</strong> of data would be needed.`)
+      : "";
+  const p = hr ? st.mk.pHr : st.mk.p;
+  const full = fmtYears(st.spanYears);
+  const rs = recentSignificant(st, hr);
+  // 2) la serie completa no lo es, pero alguna ventana reciente sí
+  if (rs) {
+    const why =
+      hr && st.mk.p < 0.05
+        ? L(" por la persistencia (autocorrelación) de los datos", " because of the persistence (autocorrelation) of the data")
+        : "";
     return L(
-      `Ninguna ventana alcanza p &lt; 0,05. Al ritmo actual harían falta <strong>≈ ${Math.ceil(rem)} años más</strong> de datos.`,
-      `No window reaches p &lt; 0.05. At the current rate, <strong>≈ ${Math.ceil(rem)} more years</strong> of data would be needed.`,
+      `Hubo periodos recientes (entre ${fmtYears(rs.min)} y ${fmtYears(rs.max)} años) con señal significativa, pero al ampliar a los <strong>${full} años completos</strong> el p-valor sube a ${fmtP(p)}${why} (no significativa en toda la serie).${more}`,
+      `There were recent periods (between ${fmtYears(rs.min)} and ${fmtYears(rs.max)} years) with a significant signal, but widening to the <strong>full ${full} years</strong> raises the p-value to ${fmtP(p)}${why} (not significant over the whole series).${more}`,
     );
-  return L("La curva no baja de 0,05 de forma estable: la tendencia no es robusta al cambiar el periodo.", "The curve does not stay below 0.05: the trend is not robust to changing the period.");
+  }
+  // 3) ningún punto de la curva baja de 0,05
+  const tail =
+    more ||
+    (st.horizon.yearsNeeded === null
+      ? L(" No hay una tendencia apreciable que detectar.", " There is no noticeable trend to detect.")
+      : L(" Por la cantidad de años ya debería verse, así que la tendencia no es estable.", " Given the number of years it should already show, so the trend is not stable."));
+  return L(`Ninguna ventana alcanza p &lt; 0,05.${tail}`, `No window reaches p &lt; 0.05.${tail}`);
 }
 
 function step5Html(a: Analysis, s: State): string {
@@ -511,8 +546,8 @@ function methodsHtml(a: Analysis): string {
           "Mann-Kendall on monthly anomalies; Seasonal Mann-Kendall (12 months) on raw values.",
         )
       : L(
-          `Estación ${a.season} (${esc(seasonText(a.season, a.A.region.lat))}): media por año estacional de las anomalías (mínimo 2 de 3 meses; diciembre cuenta para el invierno siguiente) y Seasonal Mann-Kendall sobre los meses de la estación.`,
-          `Season ${a.season} (${esc(seasonText(a.season, a.A.region.lat))}): mean anomaly per seasonal year (at least 2 of 3 months; December counts toward the following winter) and Seasonal Mann-Kendall over the season's months.`,
+          `Estación ${a.season} (${esc(seasonText(a.season, a.A.region))}): media por año estacional de las anomalías (mínimo 2 de 3 meses; diciembre cuenta para el invierno siguiente) y Seasonal Mann-Kendall sobre los meses de la estación.`,
+          `Season ${a.season} (${esc(seasonText(a.season, a.A.region))}): mean anomaly per seasonal year (at least 2 of 3 months; December counts toward the following winter) and Seasonal Mann-Kendall over the season's months.`,
         );
   return `<details class="glossary" open><summary>${L("Método y fuentes", "Methods and sources")}</summary>
     <div class="methods small">

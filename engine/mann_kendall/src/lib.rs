@@ -217,8 +217,14 @@ fn avg_ranks(v: &[f64]) -> Vec<f64> {
 /// Hamed & Rao (1998): detrend with Sen's slope, rank the residuals, and use the
 /// significant autocorrelations of those ranks to rescale Var(S).
 /// Returns n/n*_s, the factor that multiplies Var(S).
+///
+/// The factor is kept in [1, 0.8·n]: the correction only penalizes positive
+/// persistence. With short windows (n < 12) the rank autocorrelations are too
+/// noisy, and a factor < 1 shrank Var(S) enough to produce spurious p ≈ 1e-7
+/// in the Significance Horizon.
 fn hamed_rao_factor(t: &[f64], v: &[f64], slope: f64, alpha: f64) -> f64 {
     let n = v.len();
+    if n < 12 { return 1.0; }
     let resid: Vec<f64> = v.iter().zip(t).map(|(y, x)| y - slope * x).collect();
     let r = avg_ranks(&resid);
     let nf = n as f64;
@@ -236,7 +242,8 @@ fn hamed_rao_factor(t: &[f64], v: &[f64], slope: f64, alpha: f64) -> f64 {
         }
     }
     let f = 1.0 + 2.0 / (nf * (nf - 1.0) * (nf - 2.0)) * acc;
-    if f > 0.0 { f } else { 1.0 } // strong negative autocorrelation can push it <= 0: fall back
+    if !f.is_finite() { return 1.0; }
+    f.clamp(1.0, nf * 0.8)
 }
 
 fn check_time(t: &[f64]) -> Result<(), MkError> {
@@ -647,5 +654,18 @@ mod tests {
         let r = mann_kendall(&idx(40), &v, 0.05, Alternative::TwoSided).unwrap();
         assert!(r.acf_factor > 1.0, "factor {}", r.acf_factor);
         assert!(r.p_hr >= r.p);
+    }
+    #[test]
+    fn hamed_rao_never_shrinks_variance() {
+        // alternating series: strong negative autocorrelation would push the raw factor < 1
+        let v: Vec<f64> = (0..30).map(|i| i as f64 * 0.05 + if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        let r = mann_kendall(&idx(30), &v, 0.05, Alternative::TwoSided).unwrap();
+        assert!(r.acf_factor >= 1.0, "factor {}", r.acf_factor);
+        assert!(r.p_hr >= r.p);
+        // short windows (n < 12) are left uncorrected
+        let short: Vec<f64> = (0..8).map(|i| i as f64 + if i % 2 == 0 { 3.0 } else { -3.0 }).collect();
+        let r = mann_kendall(&idx(8), &short, 0.05, Alternative::TwoSided).unwrap();
+        assert_eq!(r.acf_factor, 1.0);
+        assert_eq!(r.p_hr, r.p);
     }
 }

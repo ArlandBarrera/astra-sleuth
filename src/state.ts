@@ -63,6 +63,11 @@ export interface State {
   regions: Record<Slot, Region | null>;
   y0: number;
   y1: number;
+  /**
+   * true cuando el usuario editó el rango a mano (o eligió la fecha rápida 2002). Mientras
+   * sea false, el rango sigue al registro completo de la variable al cambiarla.
+   */
+  customRange: boolean;
   season: Season;
   hr: boolean;
   view: "anom" | "raw";
@@ -89,6 +94,7 @@ let state: State = {
   regions: { A: null, B: null },
   y0: 1981,
   y1: CURRENT_YEAR,
+  customRange: false,
   season: "ALL",
   hr: true,
   view: "anom",

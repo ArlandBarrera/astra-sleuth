@@ -24,6 +24,9 @@ export const COLORS: Record<Slot, string> = { A: "#005A8D", B: "#C84B31" };
 
 export type BaseLayer = "relief" | "plain";
 
+/** Color de la esfera antes de que carguen las teselas (océano de Blue Marble). */
+const OCEAN = "#0E2A47";
+
 export interface MapApi {
   setRegions(r: Record<Slot, Region | null>, active: Slot, mode: "single" | "dipole"): void;
   setContext(variableId: string | null): void;
@@ -84,7 +87,9 @@ function style(): StyleSpecification {
       regions: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
     },
     layers: [
-      { id: "paper", type: "background", paint: { "background-color": "#F4F3EF" } },
+      // En proyección globo el fondo pinta la esfera mientras llegan las teselas de GIBS:
+      // un tono de océano profundo (como Blue Marble) evita el destello blanco al cargar.
+      { id: "paper", type: "background", paint: { "background-color": OCEAN } },
       { id: "relief", type: "raster", source: "relief", paint: { "raster-saturation": -0.25, "raster-contrast": -0.05 } },
       { id: "plain", type: "raster", source: "plain", layout: { visibility: "none" }, paint: { "raster-brightness-min": 0.45, "raster-saturation": -1 } },
       { id: "reference", type: "raster", source: "reference", paint: { "raster-opacity": 0.55 } },
@@ -129,6 +134,24 @@ export function createMap(container: HTMLElement, ev: MapEvents): MapApi {
     renderWorldCopies: false,
   });
   map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+
+  // El globo aparece con un fundido cuando el relieve ya tiene teselas (o a los 4 s como
+  // máximo, por si GIBS tarda): así no se ve la esfera vacía mientras carga.
+  container.classList.add("is-loading");
+  let shown = false;
+  const reveal = () => {
+    if (shown) return;
+    shown = true;
+    container.classList.remove("is-loading");
+    map.off("sourcedata", onSource);
+  };
+  const onSource = (e: { sourceId?: string; isSourceLoaded?: boolean; tile?: unknown }) => {
+    // `tile` evita disparar con el evento de metadatos, que llega antes que cualquier tesela
+    if (e.sourceId === "relief" && e.tile && e.isSourceLoaded) reveal();
+  };
+  map.on("sourcedata", onSource);
+  map.once("idle", reveal);
+  window.setTimeout(reveal, 4000);
 
   const draw = new MaplibreTerradrawControl({
     modes: ["render", "point", "rectangle"],

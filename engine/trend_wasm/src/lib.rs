@@ -105,7 +105,9 @@ pub struct PettittOut {
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HorizonWindow {
-    pub years: u32,
+    /// Longitud de la ventana en años. La última ventana es siempre la serie completa
+    /// (`years` = span_years, puede no ser entero) y repite exactamente los números de `mk`.
+    pub years: f64,
     pub n: usize,
     pub p: f64,
     pub p_hr: f64,
@@ -572,25 +574,34 @@ pub fn analyze_core(req: &AnalyzeRequest) -> Result<AnalyzeOut, String> {
         }
     });
 
-    // ---- Significance Horizon: ventanas retrospectivas de L años
+    // ---- Significance Horizon: ventanas retrospectivas de L años (L entero) que no
+    // llegan a cubrir toda la serie, y al final siempre la serie completa, para que el
+    // extremo derecho de la curva coincida con el p-valor de la tarjeta.
     let mut windows = Vec::new();
-    let max_years = span_years.round() as u32;
-    for years in 5..=max_years.max(5) {
+    let max_years = span_years.floor() as u32;
+    for years in 5..=max_years {
         let cut = t1 - years as f64 + 1e-6;
         let start = tt.iter().position(|&x| x > cut).unwrap_or(0);
+        if start == 0 { break; } // ya es la serie completa: se añade abajo
         let (wt, wv) = (&tt[start..], &vv[start..]);
         if wv.len() < 4 { continue; }
         if let Ok(r) = mann_kendall(wt, wv, alpha, Alternative::TwoSided) {
             windows.push(HorizonWindow {
-                years,
+                years: years as f64,
                 n: r.n,
                 p: r.p,
                 p_hr: r.p_hr,
                 slope_decade: r.sen_slope * 10.0,
             });
         }
-        if start == 0 { break; }
     }
+    windows.push(HorizonWindow {
+        years: span_years,
+        n: mk.n,
+        p: mk.p,
+        p_hr: mk.p_hr,
+        slope_decade: mk.slope_decade,
+    });
 
     // ---- ruido y años necesarios (Weatherhead 1998)
     let b = lines[0].1;
@@ -776,8 +787,30 @@ mod tests {
         assert!(r.seasonal.as_ref().unwrap().significant);
         assert!(r.horizon.years_remaining == Some(0.0));
         assert!(!r.horizon.windows.is_empty());
+        // el último punto del Horizon es la serie completa y coincide con la tarjeta
+        let last = r.horizon.windows.last().unwrap();
+        assert!(close(last.years, r.span_years, 1e-12));
+        assert_eq!(last.p_hr, r.mk.p_hr);
+        assert_eq!(last.n, r.mk.n);
         assert_eq!(r.grid.t.len(), 480);
         assert!(r.warnings.is_empty());
+    }
+
+    #[test]
+    fn horizon_ends_on_full_series_with_partial_year() {
+        // 45 años y 5 meses: round(span) = 45 dejaba fuera la serie completa
+        let mut req = monthly(1981, 46, |i, m| Some(((m as f64) * 0.52).sin() + 0.002 * i as f64 + noise(i)));
+        req.values.truncate(45 * 12 + 5);
+        req.years.truncate(45 * 12 + 5);
+        req.months.truncate(45 * 12 + 5);
+        let r = analyze_core(&req).unwrap();
+        let ws = &r.horizon.windows;
+        let last = ws.last().unwrap();
+        assert!(close(last.years, r.span_years, 1e-12) && r.span_years > 45.0);
+        assert_eq!((last.p, last.p_hr, last.n), (r.mk.p, r.mk.p_hr, r.mk.n));
+        // ventanas estrictamente crecientes y sin duplicar la serie completa
+        assert!(ws.windows(2).all(|w| w[1].years > w[0].years));
+        assert!(ws[..ws.len() - 1].iter().all(|w| w.n < r.mk.n));
     }
 
     #[test]
