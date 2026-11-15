@@ -6,7 +6,7 @@ This repository is part of the NASA Challenge 2026 porject and currently contain
 
 ## Development
 
-Requirememts: Node.js, npm, and Rust (installed via[rustup](https://rustup.rs/)).
+Requirememts: Node.js, npm, and Rust (installed via [rustup](https://rustup.rs/)).
 
 After running `npm install`, the full build process is performed using:
 
