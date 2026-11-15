@@ -65,6 +65,14 @@ function style(): StyleSpecification {
         tileSize: 256,
         maxzoom: 13,
       },
+      //adding countries tags support
+      labels: {
+        type: "raster",
+        tiles: [gibsTiles("Reference_Labels", "GoogleMapsCompatible_Level9", "png")],
+        tileSize: 256,
+        maxzoom: 9,
+        attribution: ATTR,
+      },
       regions: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
     },
     layers: [
@@ -72,6 +80,7 @@ function style(): StyleSpecification {
       { id: "relief", type: "raster", source: "relief", paint: { "raster-saturation": -0.25, "raster-contrast": -0.05 } },
       { id: "plain", type: "raster", source: "plain", layout: { visibility: "none" }, paint: { "raster-brightness-min": 0.45, "raster-saturation": -1 } },
       { id: "reference", type: "raster", source: "reference", paint: { "raster-opacity": 0.55 } },
+      { id: "labels", type: "raster", source: "labels", paint: { "raster-opacity": 0.9 } },
       {
         id: "region-fill",
         type: "fill",
