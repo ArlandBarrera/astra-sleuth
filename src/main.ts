@@ -413,12 +413,12 @@ document.addEventListener("change", (e) => {
           try {
             const series = parseCsv(text, `CSV importado (${file.name})`);
             setState((st) => ({ csv: { ...st.csv, [`${slot}:${st.variableId}`]: series } }));
-            notify(`CSV cargado: ${series.values.length} meses (${series.years[0]}–${series.years.at(-1)}).`);
+            notify(`CSV loaded: ${series.values.length} months (${series.years[0]}–${series.years.at(-1)}).`);
           } catch (err) {
             notify((err as Error).message);
           }
         },
-        () => notify("No se pudo leer el archivo."),
+        () => notify("The file could not be read."),
       );
       break;
     }

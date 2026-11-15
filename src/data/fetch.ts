@@ -1,4 +1,4 @@
-// Despacha cada variable a su fuente (POWER, ERDDAP o CSV) y guarda en caché.
+// Dispatch each variable to POWER, ERDDAP, or CSV and cache the result.
 import { getVar, sourceLabel, startYearOf, type Variable } from "../catalog";
 import type { Region } from "../geo";
 import { fetchErddap } from "./erddap";
@@ -25,7 +25,7 @@ function powerCode(v: Variable, o: FetchOpts): string | null {
   return null;
 }
 
-/** Variables que requieren que el usuario cargue un CSV (no hay API REST). */
+/** Variables that require a user-provided CSV because no REST API is available. */
 export function needsCsv(id: string, o: Pick<FetchOpts, "aodSource">): boolean {
   const v = getVar(id);
   return v.source === "giovanni" && !(v.id === "AOD" && o.aodSource === "power");
@@ -46,13 +46,13 @@ export async function getSeries(
     const y0 = Math.max(o.y0, startYearOf(v, o));
     const key = `${id}|${regionKey(region)}|${y0}|${o.y1}|${o.chlSensor}|${o.aodSource}`;
     if (csv[id] && !needsCsv(id, o)) {
-      // CSV propio cargado como respaldo (p. ej. servidor ERDDAP caído)
+      // A user-provided CSV can replace the remote source, for example when ERDDAP is unavailable.
       out[id] = sliceYears(csv[id]!, y0, o.y1);
       continue;
     }
     if (needsCsv(id, o)) {
       const s = csv[id];
-      if (!s) throw new Error(`${v.name_es}: NASA Giovanni no tiene API directa. Carga el CSV exportado desde Giovanni o elige la fuente MERRA-2.`);
+      if (!s) throw new Error(`${v.name_es}: NASA Giovanni has no direct API. Load the CSV exported from Giovanni or choose the MERRA-2 source.`);
       out[id] = sliceYears(s, y0, o.y1);
       continue;
     }
