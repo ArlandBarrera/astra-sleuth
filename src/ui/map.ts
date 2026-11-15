@@ -129,6 +129,19 @@ export function createMap(container: HTMLElement, ev: MapEvents): MapApi {
   let contextId: string | null = null;
   const markers: Marker[] = [];
 
+  // parallax movement 
+  const sky = container.parentElement!;
+  const syncSky = () => {
+    const c = map.getCenter();
+    const velocity = 70;
+    //the bg movemnt is slow than the earth model
+    const x = velocity - (c.lng / 360) * 100;
+    const y = velocity + (c.lat / 180) * 100;
+    sky.style.backgroundPosition = `${x}% ${y}%`;
+  };
+  map.on("move", syncSky);
+  syncSky();
+
   // Al terminar un dibujo: normaliza, avisa y borra la figura de terra-draw
   // (las regiones A/B se dibujan con nuestras propias capas y colores).
   map.on("load", () => {
